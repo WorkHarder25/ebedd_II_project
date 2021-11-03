@@ -2,7 +2,7 @@
 
 PB2 - SCL
 PB3 - SDA
-PF7 - Leveling Circuit GPIO Pin
+PA7 - Leveling Circuit GPIO Pin
 PB4 - Speaker
 PD7 - Interrupts for IMU
 WAKE - Light sensor

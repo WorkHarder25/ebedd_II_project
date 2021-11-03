@@ -34,6 +34,44 @@
 // Subroutines
 //-----------------------------------------------------------------------------
 
+
+// Initialize Hardware
+void initHw()
+{
+     //Initialize system clock to 40 MHz
+    initSystemClockTo40Mhz();
+}
+
+void getsUart0(char str[], uint8_t size)
+{
+    uint8_t count = 0;
+    bool end = false;
+    char c;
+    while(!end)
+    {
+        c = getcUart0();
+        end = (c == 13) || (count == size);
+        if (!end)
+        {
+            if ((c == 8 || c == 127) && count > 0)
+                count--;
+            if (c >= ' ' && c < 127)
+                str[count++] = c;
+        }
+    }
+    str[count] = '\0';
+}
+
+uint8_t asciiToUint8(const char str[])
+{
+    uint8_t data;
+    if (str[0] == '0' && tolower(str[1]) == 'x')
+        sscanf(str, "%hhx", &data);
+    else
+        sscanf(str, "%hhu", &data);
+    return data;
+}
+
 //I2C
 void initI2c0(void)
 {

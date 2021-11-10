@@ -176,9 +176,9 @@ int main(void)
     }
 
     uint16_t address = 0xBE;
-    uint8_t i2cData[] = { LB(address), 0xA };
-    writeI2c0Registers(0xA0 >> 1, HB(address), i2cData, 2);
-    uint16_t data = readI2c0Register16(0xA0 >> 1, address);
+    uint8_t i2cData[] = { LB(address), 0xA };//Array for address low byte and data you are storing
+    writeI2c0Registers(0xA0 >> 1, HB(address), i2cData, 2);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
+    uint16_t data = readI2c0Register16(0xA0 >> 1, address);//Reads value stored in address of EEPROM
 
 	return 0;
 }

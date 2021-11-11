@@ -29,11 +29,11 @@ uint8_t monthDay(uint8_t month); // Get number of days in a given month
 uint8_t monthToNum(char* month); // Change month name to number of month
 
 // itoa and atoi functionalities
-char* itoa(uint32_t num, char* buffer, uint8_t base);
+void itoa(uint32_t num, char* buffer, uint8_t base);
 void reverse(char* str, uint8_t length);
 uint32_t atoi(char* str);
 
 // output formatting
-void print(uint8_t month, uint8_t day, uint8_t hour, uint8_t min, uint8_t sec); // Will store time (print output for now tho)
+void printDandT(uint8_t month, uint8_t day, uint8_t hour, uint8_t min, uint8_t sec); // Will store time (print output for now tho)
 
 #endif /* TIME_H_ */

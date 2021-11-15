@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "tm4c123gh6pm.h"
 #include "time.h"
 #include "string.h"
@@ -107,10 +108,90 @@ uint8_t setUDate(char input[])
 }
 
 // Take user input of time and save it...return 0 is successful, 1 if invalid input, and 2 if error storing in EEPROM
-uint8_t setUTime(char* input)
+uint8_t setUTime(char input[])
 {
-    // Store in space decided for original set time in EEPROM header...will be set
-    return true;
+    // Save month as a number from the legend above
+    // Change input to sec
+    uint32_t i = 0;
+    uint8_t numH, numM, numS;
+    uint8_t count = 0;
+    uint8_t j = 0;
+    char hr[128], min[128], sec[128];
+
+    // Parse input
+    while(input[i] != '\0') // While the current character of the input does not equal a
+    {                                       // terminating character
+        if(input[i] >= 32) // check is input is a printable value
+        {
+            if(input[i] == 32) // space means move to the next field
+            {
+                if(count == 0) // if hr is complete
+                {
+                    hr[j] = '\0'; // Put null term on hr
+                    j = 0; // reset j for min
+                    count++; // increase count to show hr is complete
+                    i++; // move i to next spot in input
+                }
+                else if(count == 1) // if min is complete
+                {
+                    min[j] = '\0'; // Put null term on min
+                    j = 0; // reset j for sec
+                    count++; // increase count to show min is complete
+                    i++; // move i to next spot in input
+                }
+
+            }
+            else if(count == 0) // Store values in hr
+            {
+                hr[j] = input[i];
+                j++; // move j to next spot in month
+                i++; // move i to next spot in input
+            }
+            else if(count == 1) // Store values in min
+            {
+                min[j] = input[i];
+                j++; // move j to next spot in day
+                i++; // move i to next spot in input
+            }
+            else if(count == 2)
+            {
+                sec[j] = input[i];
+                j++; // move j to next spot in day
+                i++; // move i to next spot in input
+            }
+        }
+    }
+
+    sec[j] = '\0'; // Put null term on day
+
+    numH = atoi(hr);
+    if(numH < 0 || numH > 24) // if the above function returned a number below 0 or above 24, then the hr was invalid
+        return 1;
+
+    numM = atoi(min);
+    if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the min was invalid
+        return 1;
+
+    numS = atoi(sec);
+    if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the sec was invalid
+        return 1;
+
+    uint8_t data1[] = {LB(ADDHR), numM};
+    writeI2c0Registers(EEPROM >> 1, HB(ADDHR), data1, 2);
+    if(readI2c0Register16(EEPROM >>1, ADDHR) != numH) // If data was not stored correctly, return error msg 2
+        return 2;
+
+    uint8_t data2[] = {LB(ADDMIN), numD};
+    writeI2c0Registers(EEPROM >> 1, HB(ADDMIN), data2, 2);
+    if(readI2c0Register16(EEPROM >>1, ADDMIN) != numM) // If data was not stored correctly, return error msg 2
+        return 2;
+
+    uint8_t data2[] = {LB(ADDSEC), numD};
+    writeI2c0Registers(EEPROM >> 1, HB(ADDSEC), data2, 2);
+    if(readI2c0Register16(EEPROM >>1, ADDSEC) != numS) // If data was not stored correctly, return error msg 2
+        return 2;
+
+    return 0; // If not other errors were hit, then the write worked
 }
 
 // Stores time stamp when data is taken
@@ -263,10 +344,11 @@ uint8_t monthToNum(char* month)
 
 // itoa functionalities
 // Convert numbers to strings for output
-void itoa(uint32_t num, char* buffer, uint8_t base)
+void itoa(int32_t num, char* buffer, uint8_t base)
 {
     uint8_t i = 0;
     uint32_t temp;
+    bool neg = false;
 
     // Handle 0 explicitly, otherwise empty string is printed for num = 0
     if(num == 0)
@@ -276,6 +358,13 @@ void itoa(uint32_t num, char* buffer, uint8_t base)
         return;
     }
 
+    if(num < 0)
+    {
+        neg = true;
+        num = abs(num);
+        i++;
+    }
+
     while(num != 0)
     {
         temp = num % base; // Gets last digit of number with base 10 (will always be base 10)
@@ -283,6 +372,12 @@ void itoa(uint32_t num, char* buffer, uint8_t base)
                                   // i.e. '1' is ASCII 49. '0' + 1 == 48 + 1 = 49 == '1'
         i++;
         num = num/base; // Integer division allows for dividing by the base to remove the number just processed
+    }
+
+    if(neg == true)
+    {
+        buffer[i] = '-';
+        i++;
     }
 
     buffer[i] = '\0'; // append null terminator to end str
@@ -295,7 +390,7 @@ void itoa(uint32_t num, char* buffer, uint8_t base)
 }
 
 // reverse the output string to put in the correct order
-void reverse(char* str, uint8_t length)
+void reverse(char str[], uint8_t length)
 {
     uint8_t start = 0;
     uint8_t end = length - 1;
@@ -310,11 +405,10 @@ void reverse(char* str, uint8_t length)
         start++;
         end--;
     }
-
 }
 
 // convert strings to numbers
-uint32_t atoi(char* str)
+uint32_t myatoi(char* str)
 {
     uint32_t num = 0;
     uint8_t i, temp;

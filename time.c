@@ -7,6 +7,9 @@
 #include "tm4c123gh6pm.h"
 #include "time.h"
 #include "string.h"
+#include "i2c0.h"
+#include "wait.h"
+#include "uart0.h"
 
 /*
  * Legend for reading months as numbers:
@@ -25,24 +28,28 @@
  */
 
 #define DAYSEC 86400
-#define ADDMON 0x0000
-#define ADDDAY 0x0002
-#define ADDHR  0x0004
-#define ADDMIN 0x0006
-#define ADDSEC 0x0008
+#define ADDYR  0x0000
+#define ADDMON 0x0004
+#define ADDDAY 0x0006
+#define ADDHR  0x0008
+#define ADDMIN 0x000A
+#define ADDSEC 0x000C
 #define EEPROM 0xA0
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
 
 // Getters
-// Get original date and time given by user
-char* getOrigDateTime()
+// Returns as {Mon, Day, Hr, Min, Sec}
+void getOrigDateTime(uint8_t* origDate)
 {
-    // Get user set date
-    // Get user set date
+    origDate[0] = readI2c0Register16(EEPROM >> 1, ADDMON);
+    origDate[1] = readI2c0Register16(EEPROM >> 1, ADDDAY);
+    origDate[2] = readI2c0Register16(EEPROM >> 1, ADDHR);
+    origDate[3] = readI2c0Register16(EEPROM >> 1, ADDMIN);
+    origDate[4] = readI2c0Register16(EEPROM >> 1, ADDSEC);
 
-    // return a string in the form: Day, Month H:M:S
+    return;
 }
 
 // Setters
@@ -50,9 +57,8 @@ char* getOrigDateTime()
 uint8_t setUDate(char input[])
 {
     // Save month as a number from the legend above
-    // Change input to sec
     uint32_t i = 0;
-    uint8_t numM, numD;
+    uint8_t numM, numD, temp;
     uint8_t count = 0;
     uint8_t j = 0;
     char month[128], day[128];
@@ -96,11 +102,13 @@ uint8_t setUDate(char input[])
 
     uint8_t data1[] = {LB(ADDMON), numM};
     writeI2c0Registers(EEPROM >> 1, HB(ADDMON), data1, 2);
+    waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDMON) != numM) // If data was not stored correctly, return error msg 2
         return 2;
 
     uint8_t data2[] = {LB(ADDDAY), numD};
     writeI2c0Registers(EEPROM >> 1, HB(ADDDAY), data2, 2);
+    waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDDAY) != numD) // If data was not stored correctly, return error msg 2
         return 2;
 
@@ -108,7 +116,7 @@ uint8_t setUDate(char input[])
 }
 
 // Take user input of time and save it...return 0 is successful, 1 if invalid input, and 2 if error storing in EEPROM
-uint8_t setUTime(char input[])
+uint8_t setUTime(char* input)
 {
     // Save month as a number from the legend above
     // Change input to sec
@@ -164,30 +172,33 @@ uint8_t setUTime(char input[])
 
     sec[j] = '\0'; // Put null term on day
 
-    numH = atoi(hr);
+    numH = myatoi(hr);
     if(numH < 0 || numH > 24) // if the above function returned a number below 0 or above 24, then the hr was invalid
         return 1;
 
-    numM = atoi(min);
+    numM = myatoi(min);
     if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the min was invalid
         return 1;
 
-    numS = atoi(sec);
+    numS = myatoi(sec);
     if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the sec was invalid
         return 1;
 
-    uint8_t data1[] = {LB(ADDHR), numM};
+    uint8_t data1[] = {LB(ADDHR), numH};
     writeI2c0Registers(EEPROM >> 1, HB(ADDHR), data1, 2);
+    waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDHR) != numH) // If data was not stored correctly, return error msg 2
         return 2;
 
-    uint8_t data2[] = {LB(ADDMIN), numD};
+    uint8_t data2[] = {LB(ADDMIN), numM};
     writeI2c0Registers(EEPROM >> 1, HB(ADDMIN), data2, 2);
+    waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDMIN) != numM) // If data was not stored correctly, return error msg 2
         return 2;
 
-    uint8_t data2[] = {LB(ADDSEC), numD};
-    writeI2c0Registers(EEPROM >> 1, HB(ADDSEC), data2, 2);
+    uint8_t data3[] = {LB(ADDSEC), numS};
+    writeI2c0Registers(EEPROM >> 1, HB(ADDSEC), data3, 2);
+    waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDSEC) != numS) // If data was not stored correctly, return error msg 2
         return 2;
 
@@ -195,8 +206,15 @@ uint8_t setUTime(char input[])
 }
 
 // Stores time stamp when data is taken
-bool setTimeStamp()
+bool setTimeStamp(uint16_t add)
 {
+    uint32_t time = HIB_RTCC_R;
+
+    uint8_t i2cData[] = {LB(add), time};//Array for address low byte and data you are storing
+    writeI2c0Registers(0xA0 >> 1, HB(add), i2cData, 2);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
+    if(readI2c0Register16(0xA0 >> 1, add) != time)
+        return false;
+
     return true;
 }
 
@@ -204,16 +222,19 @@ bool setTimeStamp()
 // Change seconds into Day, Month H:M:S
 void secToDateTime(uint32_t sec)
 {
-    uint32_t daysLeft, secLeft, d, s;
-    char* currMonth, currDay, origTime;
-    char buffer[20];
+    uint32_t daysLeft, secLeft, d, s, h, m;
+    uint16_t currMonth, currDay;
+    uint8_t origDate[5];
 
-    origTime = getOrigDateTime(); // Original time given by the user will be returned in a string in the form: Day, Month H:M:S
-    uint8_t month, day;
+    getOrigDateTime(origDate); // Returns as {Mon, Day, Hr, Min, Sec} for origDate
+    d = origDate[1];
+    h = origDate[2];
+    m = origDate[3];
+    s = origDate[4];
 
-    daysleft = monthDay(month) - day; // Check the amount of day remaining in the month before the time
+    daysLeft = monthDay(origDate[0]) - d; // Check the amount of day remaining in the month before the time
                                                   // rolls into the next month
-    secLeft = DAYSEC * daysleft; // Check the amt of time left in the month
+    secLeft = DAYSEC * daysLeft; // Check the amt of time left in the month
 
     // While month subtraction does not cause seconds to go below 0...
     while(sec > 0)
@@ -222,8 +243,8 @@ void secToDateTime(uint32_t sec)
         {
             sec -= secLeft; // Remove days in original month elapsed from seconds elapsed
 
-            currMonth = nextMonth(month); // Move to next month since all time in previous month has elapsed
-            secLeft = monthSec(month); // Get the amount of seconds in the new month
+            currMonth = origDate[0] + 1; // Move to next month since all time in previous month has elapsed
+            secLeft = DAYSEC * monthDay(currMonth); // Get the amount of seconds in the new month
 
         }
         else // else, just add days elapsed
@@ -233,34 +254,39 @@ void secToDateTime(uint32_t sec)
             sec = 0; // To exit while loop since time is computed
         }
     }
+    char dateTime[128], monthS[128], time[128], buffer[128];
 
-    //TODO write output using itoa
-    currDay = itoa(d, buffer, 10);
+    // Get month name and put into output str
+    numToMonth(currMonth, monthS);
+    strcpy(dateTime, monthS);
+    strcat(dateTime, " ");
 
-}
+    // Put day into output str
+    itoa(d, buffer, 10);
+    strcat(dateTime, buffer);
+    strcat(dateTime, " ");
 
-// Change seconds to hours
-uint8_t secToHr(uint32_t sec)
-{
+    // change remaining seconds to H:M:S
+    h = s / 3600; // Get hrs in seconds remaining
+    s -= h * 3600; // Remove amt of hrs from seconds remaining
+    m = s / 60; // Get mins left in seconds remaining
+    s -= m * 60; // Remove amt of mins from seconds remaining
 
-}
+    // Format time
+    itoa(h, buffer, 10);
+    strcpy(time, buffer);
+    strcat(time, ":");
+    itoa(m, buffer, 10);
+    strcat(time, buffer);
+    strcat(time, ":");
+    itoa(s, buffer, 10);
+    strcat(time, buffer);
 
-// Change H:M:S to seconds
-uint32_t timeToSec(char* time)
-{
+    strcat(dateTime, time);
+    strcat(dateTime, "\t");
 
-}
-
-// Change Day, Month to seconds
-uint32_t dateToSec(char* date)
-{
-
-}
-
-// Change seconds to minutes
-uint8_t secToMin(uint32_t sec)
-{
-
+    putsUart0(dateTime);
+    waitMicrosecond(100000);
 }
 
 // Table Storage
@@ -342,6 +368,50 @@ uint8_t monthToNum(char* month)
         return 0;
 }
 
+// Change month number to month name
+void numToMonth(uint8_t month, char* monthS)
+{
+    switch(month){
+        case 1:
+            strcpy(monthS, "January");
+            break;
+        case 2:
+            strcpy(monthS, "February");
+            break;
+        case 3:
+            strcpy(monthS, "March");
+            break;
+        case 4:
+            strcpy(monthS, "April");
+            break;
+        case 5:
+            strcpy(monthS, "May");
+            break;
+        case 6:
+            strcpy(monthS, "June");
+            break;
+        case 7:
+            strcpy(monthS, "July");
+            break;
+        case 8:
+            strcpy(monthS, "August");
+            break;
+        case 9:
+            strcpy(monthS, "September");
+            break;
+        case 10:
+            strcpy(monthS, "October");
+            break;
+        case 11:
+            strcpy(monthS, "November");
+            break;
+        case 12:
+            strcpy(monthS, "December");
+            break;
+    }
+    return;
+}
+
 // itoa functionalities
 // Convert numbers to strings for output
 void itoa(int32_t num, char* buffer, uint8_t base)
@@ -421,11 +491,4 @@ uint32_t myatoi(char* str)
     }
 
     return num;
-}
-
-// output formatting
-// Will output date and time for user output
-void printDandT(uint8_t month, uint8_t day, uint8_t hour, uint8_t min, uint8_t sec)
-{
-
 }

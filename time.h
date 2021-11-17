@@ -23,9 +23,4 @@ uint8_t monthDay(uint8_t month); // Get number of days in a given month
 uint8_t monthToNum(char* month); // Change month name to number of month
 void numToMonth(uint8_t month, char* monthS); // Change month number to month name
 
-// itoa and atoi functionalities
-void itoa(int32_t num, char* buffer, uint8_t base);
-void reverse(char* str, uint8_t length);
-uint32_t myatoi(char* str);
-
 #endif /* TIME_H_ */

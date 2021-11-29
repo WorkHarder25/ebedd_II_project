@@ -215,7 +215,9 @@ int main(void)
     char IMUMAGX[120];
     char IMUMAGY[120];
     char IMUMAGZ[120];
-
+    char buffer[120];
+    char buffer2[120];
+    char buffer3[120];
     enablePort(PORTA);// Enables port A sets LevelSelect as an output
     selectPinPushPullOutput(LEVELSELECT);
     setPinValue(LEVELSELECT, 1);
@@ -245,17 +247,9 @@ while(true){
     //writeI2c0Register(0x68, 0x23, 0xFF);//register 35 FIFO enable
     writeI2c0Register(0x68, 0x38, 0x01);// interrupt register
 
-    writeI2c0Register(0x68, 0x1B, 0x18);//register 27 gyro write a value of 00011011(0x1B) or 0x18*change these lines if needed for accelerometer*
+    writeI2c0Register(0x68, 0x1B, 0x18);//register 27 gyro write a value of 00011011(0x1B) or 0x18
 
-    writeI2c0Register(0x68, 0x1C, 0x18);//configure register 28 page 14 was writeI2c0Register(0x68, 0x1C, 0x18); accelerometer
-    //writeI2c0Register(0x68, 0x1D, 0x05);
-
-    writeI2c0Register(0x68, 0x37, 0x02);// turn on the bypass multiplexer.
-    writeI2c0Register(0x0C, 0x0A, 0x00);//configure magnetometer pages 24 and 48 of both data sheets 0x00, 01, or 11
-    waitMicrosecond(100);
-    writeI2c0Register(0x0C, 0x0A, 0x16); //set the Magnetometer to continuous mode 2(100Hz) and 16-bit output
-    waitMicrosecond(100);
-
+    writeI2c0Register(0x68, 0x1C, 0x18);//configure register 28 page 14  accelerometer
 
 
     int8_t gyroreg = readI2c0Register(0x68, 0x1B);//*change these lines if needed for accelerometer* this is just for checking that you wrote to register correctly
@@ -268,6 +262,7 @@ while(true){
     int16_t gyroregz = readI2c0Register(0x68, 0x47);//register 68 page 33  GYRO_ZOUT_H
     int8_t gyroregz2 = readI2c0Register(0x68, 0x48);//register 68 page 33  GYRO_ZOUT_L
     int16_t gyroZ = (gyroregz<<8) | gyroregz2;//combined high byte and low byte
+
     uint32_t IMUpoll= pollI2c0Address(0x68);//polling to make sure we can read from device *0x68
     uint16_t whoami=readI2c0Register(0x68, 0x75);
 
@@ -281,22 +276,9 @@ while(true){
     int8_t accregz2 = readI2c0Register(0x68, 0x40);//register 68 page 31  ACC_ZOUT_L 64
     int16_t accZ = (accregz<<8) | accregz2;//combined high byte and low byte
 
-    int16_t magregx = readI2c0Register(0x0C, 0x04);//address 12 pages 24 and 48 of both data sheets MAG_XOUT_H
-    int8_t magregx2 = readI2c0Register(0x0C, 0x03);//address 12 pages 24 and 48 of both data sheets MAG_XOUT_L
-    int16_t magX = (magregx<<8) | magregx2;//combined high byte and low byte
-    int16_t magregy = readI2c0Register(0x0C, 0x06);//address 12 pages 24 and 48 of both data sheets MAG_YOUT_H
-    int8_t magregy2 = readI2c0Register(0x0C, 0x05);//address 12 pages 24 and 48 of both data sheets MAG_YOUT_H
-    int16_t magY = (magregy<<8) | magregy2;//combined high byte and low byte
-    int16_t magregz = readI2c0Register(0x0C, 0x08);//address 12 pages 24 and 48 of both data sheets MAG_ZOUT_H
-    int8_t magreg2 = readI2c0Register(0x0C, 0x07);//address 12 pages 24 and 48 of both data sheets MAG_ZOUT_H
-    int16_t magZ = (magregz<<8) | magreg2;//combined high byte and low byte
-    //pow(2,15)=32768
-    int16_t magXadjusted= ((magX/32768)*4900);//4900 is magnetometer sensitivity: 4800 uT
-    int16_t magYadjusted= ((magY/32768)*4900);
-    int16_t magZadjusted= ((magZ/32768)*4900);
-    uint16_t whoami2=readI2c0Register(0x0C, 0x75);
 
-    itoa(gyroX, IMUGYROX, 10);//was i2cDataIMU
+
+    itoa(gyroX, IMUGYROX, 10);
     itoa(gyroY, IMUGYROY, 10);
     itoa(gyroZ, IMUGYROZ, 10);
 
@@ -304,13 +286,27 @@ while(true){
     itoa(accY, IMUACCY, 10);
     itoa(accZ, IMUACCZ, 10);
 
-    itoa(magXadjusted, IMUMAGX, 10);
-    itoa(magYadjusted, IMUMAGY, 10);
-    itoa(magZadjusted, IMUMAGZ, 10);
 
     itoa(temp_c, IMUTEMP, 10);
 
+    writeI2c0Register(0x68, 0x37, 0x02);
+    writeI2c0Register(0x0C, 0x0A, 0x01);
+    while(!(readI2c0Register(0x0C, 0x02) & 1));
+    uint16_t x = readI2c0Register(0x0C, 0x04);
+    x = (x << 8) | readI2c0Register(0x0C, 0x03);
+    uint16_t y = readI2c0Register(0x0C, 0x06);
+    y = (y << 8) | readI2c0Register(0x0C, 0x05);
+    uint16_t z = readI2c0Register(0x0C, 0x08);
+    z = (z << 8) | readI2c0Register(0x0C, 0x07);
 
+    sprintf(buffer, "Magnetometer: x = %hu, y = %hu, z = %hu\n", x, y, z);
+    putsUart0(buffer);
+    putcUart0('\n');
+    putcUart0('\n');
+    sprintf(buffer2, "Gyroscope: x = %hu, y = %hu, z = %hu\n", gyroX, gyroY, gyroZ);
+    putsUart0(buffer2);
+    putcUart0('\n');
+    putcUart0('\n');
     putsUart0(IMUGYROX);
     putcUart0('\n');
     putsUart0(IMUGYROY);
@@ -318,7 +314,12 @@ while(true){
     putsUart0(IMUGYROZ);
     putcUart0('\n');
     putcUart0('\n');
+    sprintf(IMUTEMP, "Temperature in Celsius: %hu \n",temp_c);
     putsUart0(IMUTEMP);
+    putcUart0('\n');
+    putcUart0('\n');
+    sprintf(buffer3, "Accelerometer: x = %hu, y = %hu, z = %hu\n", accX, accY, accZ);
+    putsUart0(buffer3);
     putcUart0('\n');
     putcUart0('\n');
     putsUart0(IMUACCX);
@@ -328,13 +329,7 @@ while(true){
     putsUart0(IMUACCZ);
     putcUart0('\n');
     putcUart0('\n');
-    putsUart0(IMUMAGX);
-    putcUart0('\n');
-    putsUart0(IMUMAGY);
-    putcUart0('\n');
-    putsUart0(IMUMAGZ);
-    putcUart0('\n');
-    putcUart0('\n');
+
     waitMicrosecond(500000);//2000000
 }
 

@@ -9,13 +9,22 @@
 #include "uart0.h"
 #include "string.h"
 #include "time.h"
+#include "i2c0.h"
 
 // Defines for the log field
-#define MAG   1 // 00000001
-#define ACCEL 2 // 00000010
-#define GYRO  4 // 00000100
-#define TEMP  8 // 00001000
-#define TIME  16  // 00010000 ... Will always be on
+#define MAG         1  // 00000001
+#define ACCEL       2  // 00000010
+#define GYRO        4  // 00000100
+#define TEMP        8  // 00001000
+#define TIME        16 // 00010000 ... Will always be on
+#define LEVELING    20 // 00100000 ... if on, give random value
+#define ENCRYPT     24 // 01000000 ... if on, use encryption
+
+#define CURREG      0x0005 // Will hold value of the last register used
+#define EEPROM 0xA0  // Add of EEPROM
+
+#define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
+#define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
 
 
 // Use user input to determine what command to do and call functions. Returns false if run is activated
@@ -142,7 +151,7 @@ bool commands()
             }
             else
             {
-                putsUart0("Not a valid input for sleep. Please try again.\n\n")
+                putsUart0("Not a valid input for sleep. Please try again.\n\n");
             }
 
         }
@@ -159,7 +168,7 @@ bool commands()
             }
             else
             {
-                putsUart0("Not a valid input for sleep. Please try again.\n\n")
+                putsUart0("Not a valid input for sleep. Please try again.\n\n");
             }
 
         }
@@ -168,7 +177,10 @@ bool commands()
             uint32_t key;
 
             if(!strcmp(uIn.fields, "off"))
+            {
+                log =
                 key = 0;
+            }
             else
                 key = myatoi(uIn.fields);
 
@@ -451,6 +463,24 @@ void reverse(char str[], uint8_t length)
         start++;
         end--;
     }
+}
+
+// EEPROM address
+// get the next EEPROM address to write to
+uint16_t getNextAdd()
+{
+    /*if(log & LEVELING) // leveling in on
+        //Write code to get leveling value of next add
+
+    else
+    {*/
+    uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
+    add = add<<8;
+    uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
+    add += y;
+
+        return add;
+    //}
 }
 
 // convert strings to numbers

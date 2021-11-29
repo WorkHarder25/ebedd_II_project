@@ -19,6 +19,10 @@ void parseCommand(char* input, USER_INPUT *uIn); // Parse user input
 // itoa and atoi functionalities
 void itoa(int32_t num, char* buffer, uint8_t base);
 void reverse(char* str, uint8_t length);
+
+// EEPROM address
+uint16_t getNextAdd(); // get the next EEPROM address to write to
+
 uint32_t myatoi(char* str);
 
 #endif /* UTILITY_H_ */

@@ -1,9 +1,4 @@
-/*
- * speaker.c
- *
- *  Created on: Dec 1, 2021
- *      Author: Arcan
- */
+// speaker.c
 
 #include <stdint.h>//header files
 #include <stdio.h>
@@ -15,8 +10,6 @@
 #include "wait.h"
 #include "adc0.h"
 #include "uart0.h"
-
-
 
 #define SPEAKER (*((volatile uint32_t *)(0x42000000 + (0x400073FC-0x40000000)*32 + 1*4)))//PD1 bitband
 

@@ -54,17 +54,19 @@ void initHibernationModule()
     waitUntilWriteComplete();
 }
 
-void hibernate(uint32_t time)
+void hibernate(uint32_t ctl)
 {
+
+
     HIB_IC_R = 9; //1001
     waitUntilWriteComplete();
-    HIB_RTCM0_R = time; // Set match value (30 seconds)
+    HIB_RTCM0_R = 5; // Set match value (1 hr)
     waitUntilWriteComplete();
     HIB_RTCSS_R = HIB_RTCSS_RTCSSM_M; // set max value to 1111 (30.9999999 - 31)
     waitUntilWriteComplete();
     HIB_RTCLD_R = 0; // Load RTC with 0 to clear counter
     waitUntilWriteComplete();
-    HIB_CTL_R = 0x15B; //0001 0101 1011
+    HIB_CTL_R = ctl;
     // Bit 0 - RTC enable
     // Bit 1 - Hib request
     // Bit 3 - RTC wake up enable
@@ -74,3 +76,25 @@ void hibernate(uint32_t time)
     // Bit 8 - TOLD TO DO THIS...max power saving :D
     waitUntilWriteComplete();
 }
+
+void setRTCMatch(uint32_t time)
+{
+    HIB_CTL_R &= ~0x1;
+    waitUntilWriteComplete();
+    HIB_IC_R = 9;
+    waitUntilWriteComplete();
+    HIB_RTCLD_R = 1;
+    waitUntilWriteComplete();
+    uint32_t newTime = (time * 33);
+    uint32_t addToRTC = newTime / 32768;
+    newTime = newTime % 32768;
+    HIB_RTCM0_R = addToRTC + 1;
+    waitUntilWriteComplete();
+    HIB_RTCSS_R = 0;
+    waitUntilWriteComplete();
+    HIB_RTCSS_R |= ((newTime) << 16);
+    waitUntilWriteComplete();
+    HIB_CTL_R = 0x159;
+    waitUntilWriteComplete();
+}
+

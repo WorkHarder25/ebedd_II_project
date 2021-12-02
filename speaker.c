@@ -1,9 +1,4 @@
-/*
- * speaker.c
- *
- *  Created on: Dec 1, 2021
- *      Author: Arcan
- */
+// speaker.c
 
 #include <stdint.h>//header files
 #include <stdio.h>
@@ -15,8 +10,6 @@
 #include "wait.h"
 #include "adc0.h"
 #include "uart0.h"
-
-
 
 #define SPEAKER (*((volatile uint32_t *)(0x42000000 + (0x400073FC-0x40000000)*32 + 1*4)))//PD1 bitband
 
@@ -67,6 +60,7 @@ void initspeakerHw()//function to initialize all hardware
 
    void playAlert(){//function to play battery low melody(4 tones)
 
+       // TODO add while not jostled
        TIMER2_TAMR_R =0x2;//enables periodic timer mode
        TIMER2_TAILR_R = 45454;                       // set load value to 40e6 for 1 Hz interrupt rate
        TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts

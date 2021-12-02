@@ -1,26 +1,17 @@
-/*
- * log.h
- *
- *  Created on: Nov 29, 2021
- *      Author: Arcan
- */
+// log.h
 
 #ifndef LOG_H_
 #define LOG_H_
 
-#include <stdint.h>
-#include <stdbool.h>
-
-void initAdc0Ss3fortemperature();
-void initLog();
+// EEPROM storage
 bool storeEEPROMdata(uint32_t data);
-uint8_t readI2c0Register16(uint8_t add, uint16_t reg);
-bool logGyro(void);
-bool logMag(void);
-bool logAcc(void);
-bool logTemp(void);
-uint16_t getNextAdd();
 
+// log functions
+bool logGyro();
+bool logAcc();
+bool logMag();
+bool logTemp();
 
+// take measurements based off of
 
 #endif /* LOG_H_ */

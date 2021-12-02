@@ -60,6 +60,7 @@ void initspeakerHw()//function to initialize all hardware
 
    void playAlert(){//function to play battery low melody(4 tones)
 
+       // TODO add while not jostled
        TIMER2_TAMR_R =0x2;//enables periodic timer mode
        TIMER2_TAILR_R = 45454;                       // set load value to 40e6 for 1 Hz interrupt rate
        TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts

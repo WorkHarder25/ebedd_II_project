@@ -5,11 +5,25 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "tm4c123gh6pm.h"
-#include "utility.h"
+#include "clock.h"
 #include "uart0.h"
+#include "gpio.h"
+#include "hibernation.h"
+#include "wait.h"
+#include "i2c0.h"
 #include "string.h"
 #include "time.h"
-#include "i2c0.h"
+#include "utility.h"
+#include "command.h"
+#include "log.h"
+#include "speaker.h"
+
+// USE TO SET A TIME VALUE FOR PERIOD TIME WHEN TRIGGER MOD IS ORGINALLY SELECTED
+#define PRESETTIME  5
+
+// Pins
+#define LIGHT        PORTA,4 // 1 when light is on and 0 when light is off
+#define LEVELSELECT  PORTA,7
 
 // Defines for the log field
 #define MAG         1  // 00000001
@@ -21,15 +35,41 @@
 #define ENCRYPT     24 // 01000000 ... if on, use encryption
 #define SLEEP       28 // 10000000
 
-#define CURREG 0x0005 // Will hold value of the last register used
-#define EEPROM 0xA0  // Add of EEPROM
+// EEPROM Addresses
+#define CURREG      0x0005 // Will hold value of the last register used
+#define LOG         0x0006 // Will hold log
+#define MAXSAMP     0x0007 // Will hold max sample amount
+#define COUNTSAMP   0x0008 // Will actual sample count
+#define EEPROM      0xA0  // Add of EEPROM
+
+// Hibernate values
+#define HIBWAKE     0x000053 // 0001 0101 0011 .. NO RTC MATCH
+#define HIBTIME     0x00004B // 0001 0100 1011 .. NO WAKE PIN
+
+// HIBDATA offsets
+#define HIBLOG      (*((volatile uint32_t *)(0x400FC030 + (0*4))))  // log
+#define HIBMSAMP    (*((volatile uint32_t *)(0x400FC030 + (1*4))))  // max samples
+#define HIBGATE     (*((volatile uint32_t *)(0x400FC030 + (2*4))))  // gating param
+#define HIBLG       (*((volatile uint32_t *)(0x400FC030 + (3*4))))  // gating less than (0) or grater than (1)
+#define HIBHYST     (*((volatile uint32_t *)(0x400FC030 + (4*4))))  // hyst value
+#define HIBMODE     (*((volatile uint32_t *)(0x400FC030 + (5*4))))  // 0 trigger - 1 periodic
+#define HIBMON      (*((volatile uint32_t *)(0x400FC030 + (6*4))))  // Month
+#define HIBDAY      (*((volatile uint32_t *)(0x400FC030 + (7*4))))  // Day
+#define HIBHR       (*((volatile uint32_t *)(0x400FC030 + (8*4))))  // Hour
+#define HIBMIN      (*((volatile uint32_t *)(0x400FC030 + (9*4))))  // Minute
+#define HIBSEC      (*((volatile uint32_t *)(0x400FC030 + (10*4)))) // Second
+#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (11*4)))) // encryption key
+#define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (12*4)))) // level seed
+#define HIBCSAMP    (*((volatile uint32_t *)(0x400FC030 + (13*4)))) // sample count
+#define HIBRUN      (*((volatile uint32_t *)(0x400FC030 + (14*4)))) // if run is on (1 if on, 0 if off)
+#define HIBPERIOD   (*((volatile uint32_t *)(0x400FC030 + (15*4)))) // store period of time for hibernates in periodic mode
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
 
 
 // Use user input to determine what command to do and call functions. Returns false if run is activated
-uint8_t commands()
+void commands()
 {
     char input[128];
     USER_INPUT uIn;
@@ -37,182 +77,315 @@ uint8_t commands()
     uint8_t temp; // dummy variable used as needed
     uint8_t log = TIME; // Set the log vars to log time
 
-    while(true) // only way to get out are exit or run
+
+    while(HIBCSAMP < HIBMSAMP) // Make sure we do not exceed max sample
     {
-        // clear input and uIn for next use
-
-        strcpy(input, "\0");
-        strcpy(uIn.command, "\0");
-        strcpy(uIn.fields, "\0");
-
-        putsUart0("Enter command: ");
-
-        getsUart0(input);
-        putcUart0('\n');
-        parseCommand(input, &uIn);
-
-        // Check what command was called
-
-        if(!strcmp(uIn.command, "time"))
+        if(HIBRUN == 0) // if not running
         {
-            // Must check if user wants to store values or if they are requesting the time
-            if(uIn.fieldCount == 0) // display time
-            {
-                outputTime();
-            }
-            else // store time
-            {
-                temp = setUTime(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+            // clear input and uIn for next use
 
-                switch(temp)
+            strcpy(input, "\0");
+            strcpy(uIn.command, "\0");
+            strcpy(uIn.fields, "\0");
+
+            putsUart0("Enter command: ");
+
+            getsUart0(input);
+            putcUart0('\n');
+            parseCommand(input, &uIn);
+
+            // Check what command was called
+
+            if(!strcmp(uIn.command, "time"))
+            {
+                // Must check if user wants to store values or if they are requesting the time
+                if(uIn.fieldCount == 0) // display time
                 {
-                case 0:
-                    putsUart0("Date set successfully.\n\n");
-                    break;
-                case 1:
-                    putsUart0("Invalid input. Please try again.\n\n");
-                    break;
-                case 2:
-                    putsUart0("ERROR IN EEPROM.\n\n");
+                    outputTime();
+                }
+                else // store time
+                {
+                    temp = setUTime(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+
+                    switch(temp)
+                    {
+                    case 0:
+                        putsUart0("Date set successfully.\n\n");
+                        break;
+                    case 1:
+                        putsUart0("Invalid input. Please try again.\n\n");
+                        break;
+                    case 2:
+                        putsUart0("ERROR IN EEPROM.\n\n");
+                    }
                 }
             }
-        }
-        else if(!strcmp(uIn.command, "date"))
-        {
-            // Must check if user want to store values or if they are requesting the date
-            if(uIn.fieldCount == 0) // display date
+            else if(!strcmp(uIn.command, "date"))
             {
-                outputDate();
-            }
-            else // store time
-            {
-                temp = setUDate(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
-
-                switch(temp)
+                // Must check if user want to store values or if they are requesting the date
+                if(uIn.fieldCount == 0) // display date
                 {
-                case 0:
-                    putsUart0("Time set successfully.\n\n");
-                    break;
-                case 1:
-                    putsUart0("Invalid input. Please try again.\n\n");
-                    break;
-                case 2:
-                    putsUart0("ERROR IN EEPROM.\n\n");
+                    outputDate();
+                }
+                else // store time
+                {
+                    temp = setUDate(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+
+                    switch(temp)
+                    {
+                    case 0:
+                        putsUart0("Time set successfully.\n\n");
+                        break;
+                    case 1:
+                        putsUart0("Invalid input. Please try again.\n\n");
+                        break;
+                    case 2:
+                        putsUart0("ERROR IN EEPROM.\n\n");
+                    }
                 }
             }
-        }
-        else if(!strcmp(uIn.command, "temp"))
-        {
-            printTemp();
-        }
-        else if(!strcmp(uIn.command, "reset"))
-        {
-            NVIC_APINT_R |= 0x05FA0000 || NVIC_APINT_SYSRESETREQ;
-            // TODO connect to function that resets hardware (Also figure out what that means...)
-        }
-        else if(!strcmp(uIn.command, "log"))
-        {
-            if(uIn.fieldCount == 0)
-                logFields(log);
+            else if(!strcmp(uIn.command, "temp"))
+            {
+                printTemp();
+            }
+            else if(!strcmp(uIn.command, "reset"))
+            {
+                NVIC_APINT_R |= 0x05FA0000 || NVIC_APINT_SYSRESETREQ; // TODO get line working
+            }
+            else if(!strcmp(uIn.command, "log"))
+            {
+                if(uIn.fieldCount == 0)
+                    logFields(log);
+                else
+                {
+                if(!strcmp(uIn.fields, "compass"))
+                    log |= MAG;
+                else if(!strcmp(uIn.fields, "accel"))
+                    log |= ACCEL;
+                else if(!strcmp(uIn.fields, "gyro"))
+                    log |= GYRO;
+                else if(!strcmp(uIn.fields, "temp"))
+                    log |= TEMP;
+                else
+                    putsUart0("Not a valid log command. Please try again.\n\n");
+                }
+            }
+            else if(!strcmp(uIn.command, "samples"))
+            {
+                if(uIn.fieldCount == 1)
+                {
+                    uint16_t maxSample = myatoi(uIn.fields);
+                    uint8_t data[] = {LB(MAXSAMP), maxSample};
+                    writeI2c0Registers(EEPROM >> 1, HB(MAXSAMP), data, 2);
+                    waitMicrosecond(10000);
+                    if(readI2c0Register16(EEPROM >>1, MAXSAMP) != maxSample) // If data was not stored correctly, return error msg 2
+                        putsUart0("ERROR STORING MAX SAMPLE COUNT IN EEPROM\n\n");
+                    HIBMSAMP = maxSample; // Store max number of samples in HIBDATA
+                }
+            }
+            else if(!strcmp(uIn.command, "gating"))
+            {
+                // TODO connect to a function that offers the gating option (not sure this is someting we will use??)
+            }
+            else if(!strcmp(uIn.command, "hysteresis"))
+            {
+                // TODO connect to a function that will set the threshold hysteresis for the parameter. Value of 0 turns hysteresis off
+            }
+            else if(!strcmp(uIn.command, "sleep"))
+            {
+                if(!strcmp(uIn.fields, "on"))
+                    log |= SLEEP;
+                else if(!strcmp(uIn.fields, "off"))
+                    log = log & ~SLEEP;
+                else
+                    putsUart0("Not a valid input for sleep. Please try again.\n\n");
+
+            }
+            else if(!strcmp(uIn.command, "leveling"))
+            {
+                if(!strcmp(uIn.fields, "on"))
+                    log |= LEVELING;
+                else if(!strcmp(uIn.fields, "off"))
+                    log = log & ~LEVELING;
+                else
+                {
+                    putsUart0("Not a valid input for leveling. Please try again.\n\n");
+                }
+
+            }
+            else if(!strcmp(uIn.command, "encrypt"))
+            {
+                uint32_t key;
+
+                if(!strcmp(uIn.fields, "off"))
+                {
+                    log = log & ~ENCRYPT;
+                    key = 0;
+                }
+                else
+                {
+                    log |= ENCRYPT;
+                    key = myatoi(uIn.fields);
+                    //TODO Connect to a function that will create this encryption (Adrian will have this)
+                }
+
+                HIBKEY = key; // Store the encryption key in HIBDATA
+                while(!(HIB_CTL_R & HIB_CTL_WRC));
+
+            }
+            else if(!strcmp(uIn.command, "periodic"))
+            {
+                // Store log in EEPROM
+                uint8_t data[] = {LB(LOG), log};
+                writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
+                waitMicrosecond(10000); // Give time for write to take place
+                if(readI2c0Register16(EEPROM >>1, LOG) != log)
+                    putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
+                HIBLG = log; // store log in HIBDATA
+                while(!(HIB_CTL_R & HIB_CTL_WRC));
+
+                // Turn run on
+                HIBRUN = 1;
+
+                // store 0 for period time
+                HIBPERIOD = myatoi(uIn.fields);
+
+                uint32_t time[2];
+                getSec(HIBPERIOD, time); // devide up time entered into seconds and subseconds
+
+                // hibernate req
+                hibernate(HIBTIME, time);
+                //TODO Connect to a function that will configure periodic time with delay of T and begin running
+            }
+            else if(!strcmp(uIn.command, "trigger"))
+            {
+                // Store log in EEPROM
+                uint8_t data[] = {LB(LOG), log};
+                writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
+                waitMicrosecond(10000); // Give time for write to take place
+                if(readI2c0Register16(EEPROM >>1, LOG) != log)
+                    putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
+                HIBLG = log; // store log in HIBDATA
+                while(!(HIB_CTL_R & HIB_CTL_WRC));
+
+                // Turn run on
+                HIBRUN = 1;
+
+                // store 0 for period time
+                HIBPERIOD = PRESETTIME;
+
+                uint32_t time[] = {};
+
+                // hibernation req
+                hibernate(HIBWAKE, time);
+                //TODO Connect to a function that will configure trigger mode and begin running
+            }
+            else if(!strcmp(uIn.command, "stop"))
+            {
+                stopHibernation();
+
+                // Store actual sample count into the EERPOm
+                uint8_t data[] = {LB(COUNTSAMP), HIBCSAMP};
+                writeI2c0Registers(EEPROM >> 1, HB(COUNTSAMP), data, 2); // Store log in EEPROM header
+                waitMicrosecond(10000); // Give time for write to take place
+                if(readI2c0Register16(EEPROM >>1, COUNTSAMP) != log)
+                    putsUart0("ERROR STORING SAMPLES IN EERPOM!\n\n");
+
+                // Turn run off
+                HIBRUN = 0;
+
+                putsUart0("Log has been manually stopped. Enter 'data' to view logs");
+            }
+            else if(!strcmp(uIn.command, "help"))
+            {
+                // output list of commands
+            }
+            else if(!strcmp(uIn.command, "data"))
+            {
+                // TODO write data output
+            }
             else
             {
-            if(!strcmp(uIn.fields, "compass"))
-                log |= MAG;
-            else if(!strcmp(uIn.fields, "accel"))
-                log |= ACCEL;
-            else if(!strcmp(uIn.fields, "gyro"))
-                log |= GYRO;
-            else if(!strcmp(uIn.fields, "temp"))
-                log |= TEMP;
-            else
-                putsUart0("Not a valid log command. Please try again.\n\n");
+                putsUart0("Invalid command, please try again\n\n");
             }
         }
-        else if(!strcmp(uIn.command, "samples"))
+        else // is running
         {
-            // TODO connect to a function that will set the number of samples
-        }
-        else if(!strcmp(uIn.command, "gating"))
-        {
-            // TODO connect to a function that offers the gating option (not sure this is someting we will use??)
-        }
-        else if(!strcmp(uIn.command, "hysteresis"))
-        {
-            // TODO connect to a function that will set the threshold hysteresis for the parameter. Value of 0 turns hysteresis off
-        }
-        else if(!strcmp(uIn.command, "sleep"))
-        {
-            // May change this to an int later that goes into a function
-            if(!strcmp(uIn.fields, "on"))
+            HIBCSAMP++;
+
+            if(!getPinValue(LIGHT)) // while light is on (outputs a 1)
             {
-                // TODO turn on sleep
+                HIBMODE = 1; // Change mode to periodic
+                while(!(HIB_CTL_R & HIB_CTL_WRC));
+
+                if(rtcCausedWakeUp()) // If woken up by the RTC match value
+                {
+                    // get next add
+                    uint16_t add = getNextAdd();
+
+                    // get original time stamp
+                    uint32_t time1[2];
+                    getTimeStamp(time1);
+
+                    // play speaker (will play until complete or until jostled)
+                    playAlert();
+
+                    // get new time stamp
+                    uint32_t time2[2];
+                    getTimeStamp(time2);
+                    // subtract time stamp 2 form time stamp 1 and hold it to pass into the record function
+                    uint32_t time3[] = {time2[0] - time1[0], time2[1] - time1[1]};
+
+                    // store original time stamp
+                    uint8_t data[] = {LB(add), time1[0]}; // only store seconds
+                    writeI2c0Registers(EEPROM >> 1, HB(add), data, 2);
+                    if(readI2c0Register16(EEPROM >> 1, add) != time1[0])
+                    {
+                        putsUart0("ERROR STORING TIMESTAMP FOR SAMPLE ");
+                        char buffer[50];
+                        itoa(HIBCSAMP, buffer, 10);
+                        putsUart0(buffer);
+                        putsUart0(" IN EEPROM\n\n");
+                    }
+                }
+
+                //record(log, time3, add); // TODO write function in log.c ... will log all fields
             }
-            else if(!strcmp(uIn.fields, "off"))
+            else // light is off. No records are taken while lights are off
             {
-                // TODO turn off sleep
-            }
-            else
-            {
-                putsUart0("Not a valid input for sleep. Please try again.\n\n");
+                HIBMODE = 0; // Change mode to periodic
             }
 
-        }
-        else if(!strcmp(uIn.command, "leveling"))
-        {
-            // May change this to an int later that goes into a function
-            if(!strcmp(uIn.fields, "on"))
+            // turn off leveling circuit before hibernation (gets turned back on in initHw()
+            setPinValue(LEVELSELECT, 0);
+            waitMicrosecond(10); // give the leveling circuit a chance to turn off to avlid any issues
+
+            // Activate hibernation request
+            if(HIBMODE == 1) // periodic mode
             {
-                // TODO turn on leveling
-            }
-            else if(!strcmp(uIn.fields, "off"))
-            {
-                // TODO turn off leveling
-            }
-            else
-            {
-                putsUart0("Not a valid input for sleep. Please try again.\n\n");
+                hibernate(HIBTIME, HIBPERIOD);
             }
 
-        }
-        else if(!strcmp(uIn.command, "encrypt"))
-        {
-            uint32_t key;
-
-            if(!strcmp(uIn.fields, "off"))
-            {
-                log =
-                key = 0;
-            }
-            else
-                key = myatoi(uIn.fields);
-
-            //TODO Connect to a function that will create this encryption (0 means encryption off)
-        }
-        else if(!strcmp(uIn.command, "periodic"))
-        {
-            //TODO Connect to a function that will configure periodic time with delay of T
-        }
-        else if(!strcmp(uIn.command, "trigger"))
-        {
-            //TODO Connect to a function that will configure trigger mode
-        }
-        else if(!strcmp(uIn.command, "stop"))
-        {
-            //TODO Connect to a function that will stop sampling
-        }
-        else if(!strcmp(uIn.command, "run"))
-        {
-            // TODO
-            // check if time and date were set. If not, notify of default values
-            // check if any logs were set. If not, ask user if okay
-            // save log vars in EEPROM header and RTCC RAM
-            return log; // signify run
-        }
-        else if(!strcmp(uIn.command, "help"))
-        {
-            // output list of commands
+            else // trigger mode
+                hibernate(HIBWAKE, HIBPERIOD);
         }
     }
+
+    putsUart0("Log complete: Max samples reached\nEnter 'data' to view log information\n\n");
+    getsUart0(input);
+    putcUart0('\n');
+    parseCommand(input, &uIn);
+
+    if(!strcmp(uIn.command, "data"))
+    {
+        // TODO write data output
+    }
+    else
+    {
+        putsUart0("Invalid command, please try again\n\n");
+    }
+
+
 }
 
 // Outputs what log fields are set to take measurements

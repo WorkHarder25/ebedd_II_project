@@ -9,10 +9,13 @@
 //-----------------------------------------------------------------------------
 
 void initHibernationModule();
-void hibernate();
+void hibernate(uint32_t ctl);
 bool checkIfConfigured();
 bool rtcCausedWakeUp();
 bool wakePinCausedWakeUp();
 void waitUntilWriteComplete();
+
+// set counter match value ... should not be used but required
+void setRTCMatch(uint32_t time);
 
 #endif

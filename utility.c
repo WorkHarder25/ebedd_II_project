@@ -19,8 +19,9 @@
 #define TIME        16 // 00010000 ... Will always be on
 #define LEVELING    20 // 00100000 ... if on, give random value
 #define ENCRYPT     24 // 01000000 ... if on, use encryption
+#define SLEEP       28 // 10000000
 
-#define CURREG      0x0005 // Will hold value of the last register used
+#define CURREG 0x0005 // Will hold value of the last register used
 #define EEPROM 0xA0  // Add of EEPROM
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
@@ -28,7 +29,7 @@
 
 
 // Use user input to determine what command to do and call functions. Returns false if run is activated
-bool commands()
+uint8_t commands()
 {
     char input[128];
     USER_INPUT uIn;
@@ -102,10 +103,11 @@ bool commands()
         }
         else if(!strcmp(uIn.command, "temp"))
         {
-            // TODO connect to function that reads and outputs temp
+            printTemp();
         }
         else if(!strcmp(uIn.command, "reset"))
         {
+            NVIC_APINT_R |= 0x05FA0000 || NVIC_APINT_SYSRESETREQ;
             // TODO connect to function that resets hardware (Also figure out what that means...)
         }
         else if(!strcmp(uIn.command, "log"))
@@ -204,15 +206,11 @@ bool commands()
             // check if time and date were set. If not, notify of default values
             // check if any logs were set. If not, ask user if okay
             // save log vars in EEPROM header and RTCC RAM
-            return false; // signify run
+            return log; // signify run
         }
         else if(!strcmp(uIn.command, "help"))
         {
             // output list of commands
-        }
-        else if(!strcmp(uIn.command, "quit"))
-        {
-            return true; // signify exit...exits program and saves no changes
         }
     }
 }
@@ -474,10 +472,10 @@ uint16_t getNextAdd()
 
     else
     {*/
-    uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
-    add = add<<8;
-    uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
-    add += y;
+        uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
+        add = add<<8;
+        uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
+        add += y;
 
         return add;
     //}

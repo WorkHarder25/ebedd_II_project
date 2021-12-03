@@ -12,6 +12,7 @@ typedef struct _USER_INPUT
 }USER_INPUT;
 
 void commands(); // Use user input to determine what command to do and call functions. Returns false if run is activated
+void dataOutput(); // Will output the data stored in the EEPROM;
 void logFields(uint8_t log); // Outputs what log fields are set to take measurements
 void getsUart0(char* input); // Get string of user input
 void parseCommand(char* input, USER_INPUT *uIn); // Parse user input

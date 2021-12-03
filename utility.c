@@ -77,8 +77,7 @@ void commands()
     uint8_t temp; // dummy variable used as needed
     uint8_t log = TIME; // Set the log vars to log time
 
-
-    while(HIBCSAMP < HIBMSAMP) // Make sure we do not exceed max sample
+    while(HIBCSAMP != HIBMSAMP) // Make sure we do not exceed max sample
     {
         if(HIBRUN == 0) // if not running
         {
@@ -110,7 +109,7 @@ void commands()
                     switch(temp)
                     {
                     case 0:
-                        putsUart0("Date set successfully.\n\n");
+                        putsUart0("Time set successfully.\n\n");
                         break;
                     case 1:
                         putsUart0("Invalid input. Please try again.\n\n");
@@ -150,7 +149,7 @@ void commands()
             }
             else if(!strcmp(uIn.command, "reset"))
             {
-                NVIC_APINT_R |= 0x05FA0000 || NVIC_APINT_SYSRESETREQ; // TODO get line working
+                NVIC_APINT_R |= NVIC_APINT_VECTKEY | NVIC_APINT_SYSRESETREQ;
             }
             else if(!strcmp(uIn.command, "log"))
             {
@@ -182,14 +181,6 @@ void commands()
                         putsUart0("ERROR STORING MAX SAMPLE COUNT IN EEPROM\n\n");
                     HIBMSAMP = maxSample; // Store max number of samples in HIBDATA
                 }
-            }
-            else if(!strcmp(uIn.command, "gating"))
-            {
-                // TODO connect to a function that offers the gating option (not sure this is someting we will use??)
-            }
-            else if(!strcmp(uIn.command, "hysteresis"))
-            {
-                // TODO connect to a function that will set the threshold hysteresis for the parameter. Value of 0 turns hysteresis off
             }
             else if(!strcmp(uIn.command, "sleep"))
             {
@@ -226,7 +217,6 @@ void commands()
                 {
                     log |= ENCRYPT;
                     key = myatoi(uIn.fields);
-                    //TODO Connect to a function that will create this encryption (Adrian will have this)
                 }
 
                 HIBKEY = key; // Store the encryption key in HIBDATA
@@ -255,7 +245,6 @@ void commands()
 
                 // hibernate req
                 hibernate(HIBTIME, time);
-                //TODO Connect to a function that will configure periodic time with delay of T and begin running
             }
             else if(!strcmp(uIn.command, "trigger"))
             {
@@ -278,7 +267,6 @@ void commands()
 
                 // hibernation req
                 hibernate(HIBWAKE, time);
-                //TODO Connect to a function that will configure trigger mode and begin running
             }
             else if(!strcmp(uIn.command, "stop"))
             {
@@ -303,6 +291,7 @@ void commands()
             else if(!strcmp(uIn.command, "data"))
             {
                 // TODO write data output
+                dataOutput();
             }
             else
             {
@@ -337,9 +326,8 @@ void commands()
                     uint32_t time3[] = {time2[0] - time1[0], time2[1] - time1[1]};
 
                     // store original time stamp
-                    uint8_t data[] = {LB(add), time1[0]}; // only store seconds
-                    writeI2c0Registers(EEPROM >> 1, HB(add), data, 2);
-                    if(readI2c0Register16(EEPROM >> 1, add) != time1[0])
+                    storeEEPROMdata(add, time1[0]);
+                    if(readEEPROM32(add) != time1[0])
                     {
                         putsUart0("ERROR STORING TIMESTAMP FOR SAMPLE ");
                         char buffer[50];
@@ -347,9 +335,17 @@ void commands()
                         putsUart0(buffer);
                         putsUart0(" IN EEPROM\n\n");
                     }
-                }
 
-                //record(log, time3, add); // TODO write function in log.c ... will log all fields
+                    if(!record(time3, add))
+                    {
+                        putsUart0("ERROR STORING SMAPLE ");
+                        char buffer[30];
+                        itoa(HIBCSAMP, buffer, 10);
+                        putsUart0(buffer);
+                        putsUart0("\n\n");
+
+                    }
+                }
             }
             else // light is off. No records are taken while lights are off
             {
@@ -386,6 +382,113 @@ void commands()
     }
 
 
+}
+
+void dataOutput()
+{
+    uint8_t temp;
+    uint32_t readBack;
+    uint32_t i = 0;
+
+    // get first address
+    uint16_t add;
+    if(HIBLOG & LEVELING) // leveling on
+    {// TODO need function to get starting add with seed
+
+    }
+    else // leveling off
+    {
+        add = 0x000A;
+    }
+
+    char buffer[128] = {};
+
+    // header for output
+    strcpy(buffer, "Sample\t");
+    strcat(buffer, "Time Stamp\t");
+
+    if(HIBLOG & MAG)
+        strcat(buffer, "Magnetometer X\tMagnetometer Y\tMagnetometer Z\t");
+    if(HIBLOG & ACCEL)
+        strcat(buffer, "Accelerometer X\tAccelerometer Y\tAccelerometer Z\t");
+    if(HIBLOG & GYRO)
+        strcat(buffer, "Gyroscope X\tGyroscope Y\tGyroscope Z\t");
+    if(HIBLOG & TEMP)
+        strcat(buffer, "Temperature\t");
+    if(HIBLOG & TIME)
+        strcat(buffer, "Time Stretched For\n");
+
+    putsUart0(buffer); // output the header
+
+    for(i = 0; i < HIBCSAMP; i++) // while not read through all samples...
+    {
+        itoa(i, buffer, 10);
+        putsUart0(buffer);
+        putsUart0("\t");
+
+        // Start reading EEPROM
+        // get time stamp
+        readBack = readEEPROM32(add);
+        add += 4;
+
+        // convert time stamp
+        secToDateTime(buffer, 0, readBack); // 0 is for the type to get the full time stamp
+        putsUart0(buffer);
+        putsUart0("\t");
+
+        // get log output
+        if(HIBLOG & MAG)
+        {
+            for(i = 0; i < 3; i++)
+            {
+                temp = readEEPROM32(add);
+                add += 4;
+                itoa(temp, buffer, 10);
+                putsUart0(buffer);
+                putsUart0("\t");
+            }
+        }
+        if(HIBLOG & ACCEL)
+        {
+            for(i = 0; i < 3; i++)
+            {
+                temp = readEEPROM32(add);
+                add += 4;
+                itoa(temp, buffer, 10);
+                putsUart0(buffer);
+                putsUart0("\t");
+            }
+        }
+        if(HIBLOG & GYRO)
+        {
+            for(i = 0; i < 3; i++)
+            {
+                temp = readEEPROM32(add);
+                add += 4;
+                itoa(temp, buffer, 10);
+                putsUart0(buffer);
+                putsUart0("\t");
+            }
+        }
+        if(HIBLOG & TEMP)
+        {
+            temp = readEEPROM32(add);
+            add += 4;
+            itoa(temp, buffer, 10);
+            putsUart0(buffer);
+            putsUart0("\t");
+        }
+        if(HIBLOG & TIME)
+        {
+            temp = readEEPROM32(add);
+            add += 4;
+            itoa(temp, buffer, 10);
+            putsUart0(buffer);
+            putsUart0("\t");
+        }
+
+        putsUart0("\n");
+    }
 }
 
 // Outputs what log fields are set to take measurements

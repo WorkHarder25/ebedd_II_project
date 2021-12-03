@@ -8,7 +8,7 @@
 #ifndef LEVELING_H_
 #define LEVELING_H_
 
-int randomArrayElement(int arr[]);
+uint8_t leveling();
 
 
 

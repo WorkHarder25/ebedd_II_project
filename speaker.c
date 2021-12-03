@@ -74,9 +74,9 @@ uint16_t magY()
 
 
 bool jostleCheck(){
-    uint16_t first= logMagy();
+    uint16_t first= magY();
     waitMicrosecond(5000000);
-    uint16_t second= logMagy();
+    uint16_t second= magY();
            if ((second-first)>=200){
                return true;
            }

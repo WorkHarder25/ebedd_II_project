@@ -1,3 +1,5 @@
+
+
 /*
  * levelin.c
  *
@@ -17,16 +19,27 @@
 #define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (12*4)))) // level seed
 
 
-int randomArrayElement(int arr[]){
+uint8_t leveling(){
     // static boolean array which will store if the elements of the array are chosen before or not
     static bool chosenElements[10] = {false};
+    uint8_t i, j;
+    j=0;
+    for(i=0; i<10; i++){
+        if(chosenElements[i]==true)
+            j++;
+    }
+    if(j==10){
+        for(i=0; i<10; i++){
+            chosenElements[i]=false;
+        }
+    }
 
     // rand() will generate a random integer and if we mod it with 10
     // we will get a number in range 0 to 9
     // this will be used as index of array element
-    srand(time(0));//for creating true random using current time
+    srand(HIBSEED);//for creating true random using current time
 
-    int index = rand() % 10;
+    uint8_t index = rand() % 10;
     // if the number is already chosen before
     while(chosenElements[index] != false){
         // generate a new random number
@@ -36,8 +49,12 @@ int randomArrayElement(int arr[]){
     // mark the index as true in chosenElements array
     chosenElements[index] = true;
 
-    HIBSEED=index;
+
     // return the chosen array element
     //return arr[index];
-    return HIBSEED;
+    return index;
 }
+
+
+
+

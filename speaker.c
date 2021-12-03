@@ -58,6 +58,30 @@ void initspeakerHw()//function to initialize all hardware
        TIMER2_ICR_R = TIMER_ICR_TATOCINT; // clear interrupt flag
    }
 
+uint16_t magY()
+{
+    writeI2c0Register(0x68, 0x1A, 0x0);//configure register 26 DLPF 0x7, 0x17
+    //writeI2c0Register(0x68, 0x23, 0xFF);//register 35 FIFO enable
+    writeI2c0Register(0x68, 0x38, 0x01);// interrupt register
+    writeI2c0Register(0x68, 0x37, 0x02);
+    writeI2c0Register(0x0C, 0x0A, 0x01);
+    while(!(readI2c0Register(0x0C, 0x02) & 1));
+    uint16_t y = readI2c0Register(0x0C, 0x06);
+    y = (y << 8) | readI2c0Register(0x0C, 0x05);
+
+    return y;
+}
+
+
+bool jostleCheck(){
+    uint16_t first= logMagy();
+    waitMicrosecond(5000000);
+    uint16_t second= logMagy();
+           if ((second-first)>=200){
+               return true;
+           }
+}
+
    void playAlert(){//function to play battery low melody(4 tones)
 
        // TODO add while not jostled

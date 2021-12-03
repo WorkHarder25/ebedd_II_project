@@ -264,13 +264,17 @@ uint8_t setUTime(char* input)
 // Stores time stamp when data is taken
 bool setTimeStamp(uint16_t add)
 {
+    uint8_t temp;
+    uint32_t readBack;
     uint32_t time = HIB_RTCC_R;
     uint16_t subTime = HIB_RTCSS_R && HIB_RTCSS_RTCSSC_M;
     time = HIB_RTCC_R;
 
-    uint8_t i2cData[] = {LB(add), time};//Array for address low byte and data you are storing
-    writeI2c0Registers(0xA0 >> 1, HB(add), i2cData, 2);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
-    if(readI2c0Register16(0xA0 >> 1, add) != time)
+    storeEEPROMdata(add, time);
+
+    readBack = readEEPROM32(add);
+
+    if(readBack != time)
         return false;
 
     return true;
@@ -294,7 +298,9 @@ void secToDateTime(char* str, uint8_t type, uint32_t sec)
     m = origDate[3];
     s = origDate[4];
 
-    daysLeft = monthDay(origDate[0]) - d; // Check the amount of day remaining in the month before the time
+    currMonth = origDate[0];
+
+    daysLeft = monthDay(currMonth) - d; // Check the amount of day remaining in the month before the time
                                                   // rolls into the next month
     secLeft = DAYSEC * daysLeft; // Check the amt of time left in the month
 
@@ -367,8 +373,9 @@ void secToDateTime(char* str, uint8_t type, uint32_t sec)
     strcat(dateTime, time);
     strcat(dateTime, "\t");
 
-    putsUart0(dateTime);
-    waitMicrosecond(100000);
+    // FOllowing commented code is for testing purposes
+    //putsUart0(dateTime);
+    //waitMicrosecond(100000);
 }
 
 // Change user input of subseconds to seconds for RTC match

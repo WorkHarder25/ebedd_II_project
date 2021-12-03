@@ -24,6 +24,7 @@
 #include "i2c0.h"
 #include "string.h"
 #include "time.h"
+#include "adc0.h"
 #include "utility.h"
 #include "command.h"
 #include "log.h"
@@ -38,6 +39,10 @@
 #define I2C0SCL      PORTB,2
 #define I2C0SDA      PORTB,3
 #define RED_LED      PORTF,1
+
+#define HIBMSAMP    (*((volatile uint32_t *)(0x400FC030 + (1*4))))  // max samples
+#define HIBCSAMP    (*((volatile uint32_t *)(0x400FC030 + (13*4)))) // sample count
+#define HIBRUN      (*((volatile uint32_t *)(0x400FC030 + (14*4)))) // if run is on (1 if on, 0 if off)
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -74,7 +79,17 @@ int main(void)
     setPinValue(RED_LED, 0);
 
     if(!checkIfConfigured()) // Only need to run the commands the first time through this code
+    {
         initHibernationModule();
+
+        // Initalize values to make commands() run properly
+        HIBMSAMP = 1;
+        while(!(HIB_CTL_R & HIB_CTL_WRC));
+        HIBCSAMP = 0;
+        while(!(HIB_CTL_R & HIB_CTL_WRC));
+        HIBRUN = 0;
+        while(!(HIB_CTL_R & HIB_CTL_WRC));
+    }
 
     commands();
 

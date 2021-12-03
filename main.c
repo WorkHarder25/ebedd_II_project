@@ -6,33 +6,38 @@
 // Target uC: TM4C123GH6PM
 // System Clock: 40 MHz
 
+// Address 0x0000 - 0x0004 are reserved for the user set time and date
+
 //-----------------------------------------------------------------------------
 // Device includes, defines, and assembler directives
 //-----------------------------------------------------------------------------
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "tm4c123gh6pm.h"
 #include "clock.h"
 #include "uart0.h"
 #include "gpio.h"
 #include "hibernation.h"
 #include "wait.h"
-#include "eeprom.h"
 #include "i2c0.h"
+#include "string.h"
+#include "time.h"
+#include "utility.h"
+#include "command.h"
+#include "log.h"
 
 // PortB masks for I2C
 #define SDA_MASK 8
 #define SCL_MASK 4
 
 // Pins
-#define I2C0SCL PORTB,2
-#define I2C0SDA PORTB,3
+#define LIGHT        PORTA,4 // 1 when light is on and 0 when light is off
 #define LEVELSELECT  PORTA,7
-
-#define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
-#define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
-
+#define I2C0SCL      PORTB,2
+#define I2C0SDA      PORTB,3
+#define RED_LED      PORTF,1
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -45,27 +50,34 @@ void initHw()
     initSystemClockTo40Mhz();//change to 400 kHz
 
     initI2c0();//initialize I2C
+    initUart0();
+    initAdc0Ss3();//for temperature
 
     enablePort(PORTA);// Enables port A sets LevelSelect as an output
     selectPinPushPullOutput(LEVELSELECT);
     setPinValue(LEVELSELECT, 1);
+    selectPinDigitalInput(LIGHT);
+
+    // Set up on board LEDs
+    enablePort(PORTF);
+    selectPinPushPullOutput(RED_LED);
+
+    waitMicrosecond(5); // Let the leveling circuit completely turn on
 }
 
 int main(void)
 {
     initHw();//initialize hardware
 
-    uint8_t checkpoll;//variable and function for checking polling to see if the EEPROM is connected
+    setPinValue(RED_LED, 1);
+    waitMicrosecond(1000000);
+    setPinValue(RED_LED, 0);
 
-    if (pollI2c0Address(0xA0 >> 1) == true){
-        checkpoll=1;
-    }
+    if(!checkIfConfigured()) // Only need to run the commands the first time through this code
+        initHibernationModule();
 
-    uint16_t address = 0xBE;
-    uint8_t i2cData[] = { LB(address), 0xA };//Array for address low byte and data you are storing
-    writeI2c0Registers(0xA0 >> 1, HB(address), i2cData, 2);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
-    uint16_t data = readI2c0Register16(0xA0 >> 1, address);//Reads value stored in address of EEPROM
+    commands();
 
-    return 0;
+    while(true);
+
 }
-

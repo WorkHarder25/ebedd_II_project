@@ -28,14 +28,23 @@
  * 12  -   Dec
  */
 
-#define DAYSEC 86400
-#define ADDYR  0x0000
-#define ADDMON 0x0004
-#define ADDDAY 0x0006
-#define ADDHR  0x0008
-#define ADDMIN 0x000A
-#define ADDSEC 0x000C
-#define EEPROM 0xA0
+#define DAYSEC 86400 // Amount of seconds in a day
+
+// EEPROM
+#define ADDMON 0x0000 // 1-12 - 0x1 - 0xC
+#define ADDDAY 0x0001 // 1 - 31 - 0x01 - 0x
+#define ADDHR  0x0002 // 0 - 24 - 0x00 - 0x
+#define ADDMIN 0x0003 // 0 - 59 - 0x00 - 0x
+#define ADDSEC 0x0004 // 0 - 59 - 0x00 - 0x
+#define CURREG 0x0005 // Will hold value of the last register used
+#define EEPROM 0xA0  // Add of EEPROM
+
+// HIBDATA
+#define HIBMON  (*((volatile uint32_t *)(0x400FC030 + (6*4)))) // Month
+#define HIBDAY  (*((volatile uint32_t *)(0x400FC030 + (7*4)))) // Day
+#define HIBHR   (*((volatile uint32_t *)(0x400FC030 + (8*4)))) // Hour
+#define HIBMIN  (*((volatile uint32_t *)(0x400FC030 + (9*4)))) // Minute
+#define HIBSEC  (*((volatile uint32_t *)(0x400FC030 + (10*4)))) // Second
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
@@ -51,6 +60,42 @@ void getOrigDateTime(uint8_t* origDate)
     origDate[4] = readI2c0Register16(EEPROM >> 1, ADDSEC);
 
     return;
+}
+
+// Will get seconds from the HIBRTCC counter and send to secToDateTime. Get back only time
+void outputTime() // TODO still an issue with the RTCC reg
+{
+    char str[128];
+    uint32_t sec = HIB_RTCC_R; // Read the seconds value from the counter
+    waitMicrosecond(10000);
+    secToDateTime(str, 2, sec);
+
+    putsUart0(str);
+    putsUart0("\n\n");
+}
+
+// Will get seconds from the HIBRTCC counter and send to secToDateTime. Get back only date
+void outputDate()
+{
+    char str[128];
+    uint32_t sec = HIB_RTCC_R; // Read the seconds value from the counter
+    waitMicrosecond(10000);
+    secToDateTime(str, 1, sec);
+
+    putsUart0(str);
+    putsUart0("\n\n");
+}
+
+bool getTimeStamp(uint32_t* time)
+{
+    uint32_t seconds = HIB_RTCC_R;
+    time[1] = HIB_RTCSS_R && HIB_RTCSS_RTCSSC_M;
+    time[0] = HIB_RTCC_R;
+
+    if(time[0] != HIB_RTCC_R)
+        return false;
+
+    return true;
 }
 
 // Setters
@@ -97,7 +142,7 @@ uint8_t setUDate(char input[])
     if(numM == 0) // if the above function returned a 0, then the month was invalid
         return 1;
 
-    numD = atoi(day);
+    numD = myatoi(day);
     if(numD > monthDay(numM)) // if the day input is not a valid day for the month given, return error msg 1
         return 1;
 
@@ -106,12 +151,16 @@ uint8_t setUDate(char input[])
     waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDMON) != numM) // If data was not stored correctly, return error msg 2
         return 2;
+    HIBMON = numM; // Store month in HIBDATA
+    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
     uint8_t data2[] = {LB(ADDDAY), numD};
     writeI2c0Registers(EEPROM >> 1, HB(ADDDAY), data2, 2);
     waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDDAY) != numD) // If data was not stored correctly, return error msg 2
         return 2;
+    HIBDAY = numD; // Store day in HIBDATA
+    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
     return 0; // If not other errors were hit, then the write worked
 }
@@ -174,15 +223,15 @@ uint8_t setUTime(char* input)
     sec[j] = '\0'; // Put null term on day
 
     numH = myatoi(hr);
-    if(numH < 0 || numH > 24) // if the above function returned a number below 0 or above 24, then the hr was invalid
+    if(numH > 24) // if the above function returned a number below 0 or above 24, then the hr was invalid
         return 1;
 
     numM = myatoi(min);
-    if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the min was invalid
+    if(numH > 59) // if the above function returned a number below 0 or above 59, then the min was invalid
         return 1;
 
     numS = myatoi(sec);
-    if(numH < 0 || numH > 59) // if the above function returned a number below 0 or above 59, then the sec was invalid
+    if(numH > 59) // if the above function returned a number below 0 or above 59, then the sec was invalid
         return 1;
 
     uint8_t data1[] = {LB(ADDHR), numH};
@@ -190,18 +239,24 @@ uint8_t setUTime(char* input)
     waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDHR) != numH) // If data was not stored correctly, return error msg 2
         return 2;
+    HIBHR = numH; // Store hour in HIBDATA
+    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
     uint8_t data2[] = {LB(ADDMIN), numM};
     writeI2c0Registers(EEPROM >> 1, HB(ADDMIN), data2, 2);
     waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDMIN) != numM) // If data was not stored correctly, return error msg 2
         return 2;
+    HIBMIN = numM; // Store min in HIBDATA
+    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
     uint8_t data3[] = {LB(ADDSEC), numS};
     writeI2c0Registers(EEPROM >> 1, HB(ADDSEC), data3, 2);
     waitMicrosecond(10000);
     if(readI2c0Register16(EEPROM >>1, ADDSEC) != numS) // If data was not stored correctly, return error msg 2
         return 2;
+    HIBSEC = numS; // Store seconds in HIBDATA
+    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
     return 0; // If not other errors were hit, then the write worked
 }
@@ -210,6 +265,8 @@ uint8_t setUTime(char* input)
 bool setTimeStamp(uint16_t add)
 {
     uint32_t time = HIB_RTCC_R;
+    uint16_t subTime = HIB_RTCSS_R && HIB_RTCSS_RTCSSC_M;
+    time = HIB_RTCC_R;
 
     uint8_t i2cData[] = {LB(add), time};//Array for address low byte and data you are storing
     writeI2c0Registers(0xA0 >> 1, HB(add), i2cData, 2);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
@@ -220,9 +277,13 @@ bool setTimeStamp(uint16_t add)
 }
 
 // Conversion functions
-// Change seconds into Day, Month H:M:S
-void secToDateTime(uint32_t sec)
+// Change seconds to Day, Month H:M:S. Type determines when to return out of function.
+void secToDateTime(char* str, uint8_t type, uint32_t sec)
 {
+    // type 0 - get full time stamp
+    // type 1 - get date and return
+    // type 2 - get time and return
+
     uint32_t daysLeft, secLeft, d, s, h, m;
     uint16_t currMonth, currDay;
     uint8_t origDate[5];
@@ -245,6 +306,9 @@ void secToDateTime(uint32_t sec)
             sec -= secLeft; // Remove days in original month elapsed from seconds elapsed
 
             currMonth = origDate[0] + 1; // Move to next month since all time in previous month has elapsed
+            if(currMonth > 12)
+                currMonth = 1; // Overlap to January
+
             secLeft = DAYSEC * monthDay(currMonth); // Get the amount of seconds in the new month
 
         }
@@ -265,7 +329,17 @@ void secToDateTime(uint32_t sec)
     // Put day into output str
     itoa(d, buffer, 10);
     strcat(dateTime, buffer);
-    strcat(dateTime, " ");
+
+    if(type == 1) // just return date
+    {
+        strcat(dateTime, "\0");
+        strcpy(str, dateTime);
+        return;
+    }
+    else
+    {
+        strcat(dateTime, " ");
+    }
 
     // change remaining seconds to H:M:S
     h = s / 3600; // Get hrs in seconds remaining
@@ -283,6 +357,13 @@ void secToDateTime(uint32_t sec)
     itoa(s, buffer, 10);
     strcat(time, buffer);
 
+    if(type == 2) // Just return time
+    {
+        strcat(time, "\0");
+        strcpy(str, time);
+        return;
+    }
+
     strcat(dateTime, time);
     strcat(dateTime, "\t");
 
@@ -290,6 +371,12 @@ void secToDateTime(uint32_t sec)
     waitMicrosecond(100000);
 }
 
+// Change user input of subseconds to seconds for RTC match
+void getSec(uint32_t subseconds, uint32_t* time)
+{
+    time[0] = subseconds/32768; // integer division to get seconds out of subseconds
+    time[1] = subseconds - (time[0]*32768); // subtract out the seconds accounted for
+}
 // Table Storage
 // Get number of seconds in a given month
 uint8_t monthDay(uint8_t month)

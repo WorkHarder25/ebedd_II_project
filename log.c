@@ -43,18 +43,18 @@
 #define EEPROM 0xA0
 
 // Defines for the log field
-#define MAG         1  // 00000001
-#define ACCEL       2  // 00000010
-#define GYRO        4  // 00000100
-#define TEMP        8  // 00001000
-#define TIME        16 // 00010000 ... Will always be on
-#define LEVELING    20 // 00100000 ... if on, give random value
-#define ENCRYPT     24 // 01000000 ... if on, use encryption
-#define SLEEP       28 // 10000000
+#define MAG         1   // 00000001
+#define ACCEL       2   // 00000010
+#define GYRO        4   // 00000100
+#define TEMP        8   // 00001000
+#define TIME        16  // 00010000 ... Will always be on
+#define LEVELING    32  // 00100000 ... if on, give random value
+#define ENCRYPT     64  // 01000000 ... if on, use encryption
+#define SLEEP       128 // 10000000
 
 // HIBDATA offsets
 #define HIBLOG      (*((volatile uint32_t *)(0x400FC030 + (0*4))))  // log
-#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (11*4)))) // encryption key
+#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (8*4)))) // encryption key
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
@@ -65,12 +65,17 @@
 
 bool storeEEPROMdata(uint16_t add, uint32_t data)
 {
+    uint32_t temp;
     if(HIBLOG & ENCRYPT) // if encryption is on...
-        data = encrypt(data);
+    {
+        temp = encrypt(data);
+    }
+    else
+        temp = data;
 
-    uint8_t i2cData[] = {LB(add), data>>24, data>>16, data>>8, data};//Array for address low byte and data you are storing
-    writeI2c0Registers(0xA0 >> 1, HB(add), i2cData, 4);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
-    waitMicrosecond(10000);
+    uint8_t i2cData[] = {LB(add), temp>>24, temp>>16, temp>>8, temp};//Array for address low byte and data you are storing
+    writeI2c0Registers(0xA0 >> 1, HB(add), i2cData, 5);//Writes to address in EEPROM using address high byte, array of address low byte, and 2 for size
+    waitMicrosecond(1000000);
 
     uint32_t readEEprom = readI2c0Register16(0xA0 >> 1, add);
     readEEprom= readEEprom<<8;
@@ -80,15 +85,22 @@ bool storeEEPROMdata(uint16_t add, uint32_t data)
     dummy=readI2c0Register16(0xA0 >> 1, add+2);
     readEEprom+=dummy;
     readEEprom= readEEprom<<8;
-    dummy=readI2c0Register16(0xA0 >> 1, add+2);
+    dummy=readI2c0Register16(0xA0 >> 1, add+3);
     readEEprom+=dummy;
+
+    if(HIBLOG & ENCRYPT) // if encryption is on...
+    {
+        readEEprom = decrypt(readEEprom);
+    }
 
     if(readEEprom!= data) //data was time
         return false;
 
-    uint8_t data2[] = {LB(CURREG), HB(add+2), LB(add+2)};
+    add += 4;
+
+    uint8_t data2[] = {LB(CURREG), HB(add), LB(add)};
     writeI2c0Registers(EEPROM >> 1, HB(CURREG), data2, 3);
-    waitMicrosecond(10000);
+    waitMicrosecond(50000);
 
     return true;
 }
@@ -105,6 +117,11 @@ uint32_t readEEPROM32(uint16_t add)
     readEEprom = readEEprom<<8;
     dummy=readI2c0Register16(0xA0 >> 1, add+3);
     readEEprom+=dummy;
+
+    if(HIBLOG & ENCRYPT) // if encryption is on...
+    {
+        readEEprom = decrypt(readEEprom);
+    }
 
     return readEEprom;
 }
@@ -124,11 +141,32 @@ bool logMag(uint16_t add)
     uint32_t z = readI2c0Register(0x0C, 0x08);
     z = (z << 8) | readI2c0Register(0x0C, 0x07);
 
+    // TODO REMOVE TEST OUTPUT
+    char buffer[20];
+    putsUart0("Mag X - ");
+    itoa(x, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Mag Y - ");
+    itoa(y, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+4, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Mag Z - ");
+    itoa(z, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+8, buffer, 10);
+    putsUart0(buffer);
+
     if (!storeEEPROMdata(add, x))
            return false;
-    if (!storeEEPROMdata(add+1, y))
+    if (!storeEEPROMdata(add+4, y))
            return false;
-    if (!storeEEPROMdata(add+2, z))
+    if (!storeEEPROMdata(add+8, z))
            return false;
 
        return true;
@@ -153,10 +191,31 @@ bool logAcc(uint16_t add)
 
     if (!storeEEPROMdata(add, accX))
            return false;
-    if (!storeEEPROMdata(add+1, accY))
+    if (!storeEEPROMdata(add+4, accY))
            return false;
-    if (!storeEEPROMdata(add+2, accZ))
+    if (!storeEEPROMdata(add+8, accZ))
            return false;
+
+    // TODO REMOVE TEST OUTPUT
+    char buffer[20];
+    putsUart0("Accel X - ");
+    itoa(accX, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Accel Y - ");
+    itoa(accY, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+4, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Accel Z - ");
+    itoa(accZ, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+8, buffer, 10);
+    putsUart0(buffer);
 
        return true;
 }
@@ -181,10 +240,31 @@ bool logGyro(uint16_t add)
 
     if (!storeEEPROMdata(add, gyroX))
         return false;
-    if (!storeEEPROMdata(add+1, gyroY))
+    if (!storeEEPROMdata(add+4, gyroY))
         return false;
-    if (!storeEEPROMdata(add+2, gyroZ))
+    if (!storeEEPROMdata(add+8, gyroZ))
         return false;
+
+    // TODO REMOVE TEST OUTPUT
+    char buffer[20];
+    putsUart0("Gyro X - ");
+    itoa(gyroX, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Gyro Y - ");
+    itoa(gyroY, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+4, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" Gyro Z - ");
+    itoa(gyroZ, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add+8, buffer, 10);
+    putsUart0(buffer);
 
     return true;
 }
@@ -200,6 +280,15 @@ bool logTemp(uint16_t add)
     if (!storeEEPROMdata(add, temp_c))
            return false;
 
+    // TODO remove test output
+    char buffer[20];
+    putsUart0("Temp - ");
+    itoa(temp_c, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add, buffer, 10);
+    putsUart0(buffer);
+
        return true;
 }
 
@@ -209,14 +298,17 @@ bool logTime(uint16_t add, uint32_t* time)
     double subseconds = time[1]/32768;
     double seconds = time[0] + subseconds;
 
-    if(!storeEEPROMdata(add, seconds));
+    if(!storeEEPROMdata(add, seconds))
         return false;
-    if(!storeEEPROMdata(add+1, (uint32_t)seconds>>8));
-        return false;
-    if(!storeEEPROMdata(add+2, (uint32_t)seconds>>16));
-        return false;
-    if(!storeEEPROMdata(add+3, (uint32_t)seconds>>24));
-        return false;
+
+    //TODO remove test output
+    char buffer[20];
+    putsUart0("Time - ");
+    itoa(seconds, buffer, 10);
+    putsUart0(buffer);
+    putsUart0(" at add ");
+    itoa(add, buffer, 10);
+    putsUart0(buffer);
 
     return true;
 }
@@ -243,30 +335,35 @@ bool record(uint32_t* time, uint16_t add)
     {
         if(!logMag(add+i))
             return false;
-        i+3;
+        i += 12;
+        putsUart0("\n");
     }
     if(HIBLOG & ACCEL)
     {
         if(!logAcc(add+i))
             return false;
-        i+3;
+        i += 12;
+        putsUart0("\n");
     }
     if(HIBLOG & GYRO)
     {
         if(!logGyro(add+i))
             return false;
-        i+3;
+        i += 12;
+        putsUart0("\n");
     }
     if(HIBLOG & TEMP)
     {
         if(!logTemp(add+i))
             return false;
-        i++;
+        i += 4;
+        putsUart0("\n");
     }
     if(HIBLOG & TIME)
     {
         if(!logTime(add+i, time))
             return false;
+        putsUart0("\n");
     }
 
     return true;

@@ -1,4 +1,5 @@
 // speaker.c
+// Will play speaker until jostled or until a given time elapses
 
 #include <stdint.h>//header files
 #include <stdio.h>
@@ -10,9 +11,12 @@
 #include "wait.h"
 #include "adc0.h"
 #include "uart0.h"
+#include "time.h"
+#include "i2c0.h"
 
 #define SPEAKER (*((volatile uint32_t *)(0x42000000 + (0x400073FC-0x40000000)*32 + 1*4)))//PD1 bitband
 
+#define SPEAKERTIME 5
 
 void initspeakerHw()//function to initialize all hardware
 {
@@ -73,18 +77,31 @@ uint16_t magY()
 }
 
 
-bool jostleCheck(){
-    uint16_t first= magY();
-    waitMicrosecond(5000000);
-    uint16_t second= magY();
-           if ((second-first)>=200){
-               return true;
-           }
+bool jostleCheck(uint16_t* prev){
+    uint16_t curr = magY();
+
+    int diff = curr - *prev;
+    if (abs(diff)>=500){
+       return true;
+    }
+    else
+    {
+       *prev = curr;
+       return false;
+    }
 }
 
-   void playAlert(){//function to play battery low melody(4 tones)
+void playAlert(){//function to play battery low melody(4 tones)
 
-       // TODO add while not jostled
+    uint32_t time1[2], time2[2];
+    uint16_t prevMag = magY();
+    getTimeStamp(time1);
+    waitMicrosecond(1000);
+
+    uint32_t diff = 0;
+
+   while(!jostleCheck(&prevMag) && diff < SPEAKERTIME)
+   {
        TIMER2_TAMR_R =0x2;//enables periodic timer mode
        TIMER2_TAILR_R = 45454;                       // set load value to 40e6 for 1 Hz interrupt rate
        TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
@@ -93,28 +110,39 @@ bool jostleCheck(){
        waitMicrosecond(363636);
        TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
 
+       if(!jostleCheck(&prevMag))
+       {
+           TIMER2_TAILR_R = 90908;                       // set load value to 40e6 for 1 Hz interrupt rate
+           TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
+           NVIC_EN0_R |= 1 << (INT_TIMER2A-16);             // turn-on interrupt 37 (TIMER1A)
+           TIMER2_CTL_R |= TIMER_CTL_TAEN;                  // turn-on timer
+           waitMicrosecond(363636);
+           TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
+       }
+       else
+           return; // stop sounds
 
-       TIMER2_TAILR_R = 90908;                       // set load value to 40e6 for 1 Hz interrupt rate
+       if(!jostleCheck(&prevMag))
+       {
+           TIMER2_TAILR_R = 181816;                       // set load value to 40e6 for 1 Hz interrupt rate
+           TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
+           NVIC_EN0_R |= 1 << (INT_TIMER2A-16);             // turn-on interrupt 37 (TIMER1A)
+           TIMER2_CTL_R |= TIMER_CTL_TAEN;                  // turn-on timer
+           waitMicrosecond(363636);
+           TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
+       }
+       else
+           return; // stop sounds
+
+       /*TIMER2_TAILR_R = 45454;                       // set load value to 40e6 for 1 Hz interrupt rate
        TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
        NVIC_EN0_R |= 1 << (INT_TIMER2A-16);             // turn-on interrupt 37 (TIMER1A)
        TIMER2_CTL_R |= TIMER_CTL_TAEN;                  // turn-on timer
        waitMicrosecond(363636);
-       TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
+       TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer*/
 
-
-       TIMER2_TAILR_R = 181816;                       // set load value to 40e6 for 1 Hz interrupt rate
-       TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
-       NVIC_EN0_R |= 1 << (INT_TIMER2A-16);             // turn-on interrupt 37 (TIMER1A)
-       TIMER2_CTL_R |= TIMER_CTL_TAEN;                  // turn-on timer
-       waitMicrosecond(363636);
-       TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
-
-
-       TIMER2_TAILR_R = 45454;                       // set load value to 40e6 for 1 Hz interrupt rate
-       TIMER2_IMR_R = TIMER_IMR_TATOIM;                 // turn-on interrupts
-       NVIC_EN0_R |= 1 << (INT_TIMER2A-16);             // turn-on interrupt 37 (TIMER1A)
-       TIMER2_CTL_R |= TIMER_CTL_TAEN;                  // turn-on timer
-       waitMicrosecond(363636);
-       TIMER2_CTL_R &= ~TIMER_CTL_TAEN;                 //turn off timer
+       getTimeStamp(time2); // Get new time stamp
+       diff = time2[0] - time1[0]; // Calculate time passed since speaker began playing
 
    }
+}

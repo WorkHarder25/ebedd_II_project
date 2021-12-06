@@ -11,6 +11,7 @@
 #include "wait.h"
 #include "uart0.h"
 #include "utility.h"
+#include "log.h"
 
 /*
  * Legend for reading months as numbers:
@@ -40,11 +41,11 @@
 #define EEPROM 0xA0  // Add of EEPROM
 
 // HIBDATA
-#define HIBMON  (*((volatile uint32_t *)(0x400FC030 + (6*4)))) // Month
-#define HIBDAY  (*((volatile uint32_t *)(0x400FC030 + (7*4)))) // Day
-#define HIBHR   (*((volatile uint32_t *)(0x400FC030 + (8*4)))) // Hour
-#define HIBMIN  (*((volatile uint32_t *)(0x400FC030 + (9*4)))) // Minute
-#define HIBSEC  (*((volatile uint32_t *)(0x400FC030 + (10*4)))) // Second
+#define HIBMON      (*((volatile uint32_t *)(0x400FC030 + (3*4))))  // Month
+#define HIBDAY      (*((volatile uint32_t *)(0x400FC030 + (4*4))))  // Day
+#define HIBHR       (*((volatile uint32_t *)(0x400FC030 + (5*4))))  // Hour
+#define HIBMIN      (*((volatile uint32_t *)(0x400FC030 + (6*4))))  // Minute
+#define HIBSEC      (*((volatile uint32_t *)(0x400FC030 + (7*4)))) // Second
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
@@ -63,12 +64,22 @@ void getOrigDateTime(uint8_t* origDate)
 }
 
 // Will get seconds from the HIBRTCC counter and send to secToDateTime. Get back only time
-void outputTime() // TODO still an issue with the RTCC reg
+void outputTime()
 {
     char str[128];
-    uint32_t sec = HIB_RTCC_R; // Read the seconds value from the counter
-    waitMicrosecond(10000);
-    secToDateTime(str, 2, sec);
+    uint8_t origDate[5];
+    getOrigDateTime(origDate);
+
+    char buffer[10];
+    itoa(origDate[2], buffer, 10);
+    strcpy(str, buffer);
+    strcat(str, ":");
+    itoa(origDate[3], buffer, 10);
+    strcat(str, buffer);
+    strcat(str, ":");
+    itoa(origDate[4], buffer, 10);
+    strcat(str, buffer);
+
 
     putsUart0(str);
     putsUart0("\n\n");
@@ -78,12 +89,19 @@ void outputTime() // TODO still an issue with the RTCC reg
 void outputDate()
 {
     char str[128];
-    uint32_t sec = HIB_RTCC_R; // Read the seconds value from the counter
-    waitMicrosecond(10000);
-    secToDateTime(str, 1, sec);
+    char buffer[30];
+    uint8_t origDate[5];
+    getOrigDateTime(origDate);
+
+    numToMonth(origDate[0], buffer);
+    strcpy(str, buffer);
+    strcat(str, " ");
+    itoa(origDate[1], buffer, 10);
+    strcat(str, buffer);
 
     putsUart0(str);
     putsUart0("\n\n");
+
 }
 
 bool getTimeStamp(uint32_t* time)
@@ -320,11 +338,33 @@ void secToDateTime(char* str, uint8_t type, uint32_t sec)
         }
         else // else, just add days elapsed
         {
-            d = sec / DAYSEC; // Get number of days left in the seconds elapsed
-            s = sec - (d*DAYSEC); // seconds elapsed - (seconds in the days) = seconds remaining
+            d = d + (sec / DAYSEC); // Get number of days left in the seconds elapsed
+            s = s + (sec - ((sec/DAYSEC)*DAYSEC)); // seconds elapsed - (seconds in the days) = seconds remaining
             sec = 0; // To exit while loop since time is computed
         }
     }
+
+    // change remaining seconds to H:M:S
+    h = h + (s / 3600); // Get hrs in seconds remaining
+    if(h > 24)
+    {
+        h -= 24;
+        d += 1;
+    }
+    s -= (s / 3600) * 3600; // Remove amt of hrs from seconds remaining
+    m += s / 60; // Get mins left in seconds remaining
+    if(m > 60)
+    {
+        m -= 60;
+        h += 1;
+        if(h > 24)
+        {
+            h -= 24;
+            d += 1;
+        }
+    }
+    s -= s / 60 * 60; // Remove amt of mins from seconds remaining
+
     char dateTime[128], monthS[128], time[128], buffer[128];
 
     // Get month name and put into output str
@@ -347,12 +387,6 @@ void secToDateTime(char* str, uint8_t type, uint32_t sec)
         strcat(dateTime, " ");
     }
 
-    // change remaining seconds to H:M:S
-    h = s / 3600; // Get hrs in seconds remaining
-    s -= h * 3600; // Remove amt of hrs from seconds remaining
-    m = s / 60; // Get mins left in seconds remaining
-    s -= m * 60; // Remove amt of mins from seconds remaining
-
     // Format time
     itoa(h, buffer, 10);
     strcpy(time, buffer);
@@ -371,7 +405,7 @@ void secToDateTime(char* str, uint8_t type, uint32_t sec)
     }
 
     strcat(dateTime, time);
-    strcat(dateTime, "\t");
+    strcpy(str, dateTime);
 
     // FOllowing commented code is for testing purposes
     //putsUart0(dateTime);

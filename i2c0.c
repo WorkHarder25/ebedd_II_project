@@ -122,7 +122,7 @@ void writeI2c0Registers(uint8_t add, uint8_t reg, uint8_t data[], uint8_t size)/
         while ((I2C0_MRIS_R & I2C_MRIS_RIS) == 0);
     }
 }
-
+//
 uint8_t readI2c0Register(uint8_t add, uint8_t reg)
 {
     I2C0_MSA_R = add << 1; // add:r/~w=0 ...write because you must write the register #

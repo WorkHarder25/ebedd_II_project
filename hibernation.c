@@ -38,7 +38,7 @@ void hibernate(uint32_t ctl, uint32_t* time)
     waitUntilWriteComplete();
     HIB_RTCM0_R = time[0]; // Set match value
     waitUntilWriteComplete();
-    HIB_RTCSS_R = time[1]; // set max value to 1111 (30.9999999 - 31)
+    HIB_RTCSS_R = HIB_RTCSS_RTCSSM_M; // set max value to 1111 (30.9999999 - 31)
     waitUntilWriteComplete();
     HIB_RTCLD_R = 0; // Load RTC with 0 to clear counter
     waitUntilWriteComplete();
@@ -89,6 +89,8 @@ void startTime()
 
 void stopHibernation()
 {
+    HIB_IC_R = 13; //11001
+    waitUntilWriteComplete();
     HIB_CTL_R = 0x00; // Cancel hibernation request
     waitUntilWriteComplete();
 }

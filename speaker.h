@@ -9,8 +9,5 @@
 void initspeakerHw();
 void timer2Isr();
 void playAlert();
-bool jostleCheck();
-uint16_t magY();
 
 #endif /* SPEAKER_H_ */
-

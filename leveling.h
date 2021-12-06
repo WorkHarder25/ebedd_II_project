@@ -1,9 +1,5 @@
-/*
- * leveling.h
- *
- *  Created on: Dec 3, 2021
- *      Author: Arcan
- */
+// leveling.h
+// This is responsible for for random access of memory
 
 #ifndef LEVELING_H_
 #define LEVELING_H_

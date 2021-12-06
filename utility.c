@@ -17,6 +17,7 @@
 #include "command.h"
 #include "log.h"
 #include "speaker.h"
+#include "leveling.h"
 
 // USE TO SET A TIME VALUE FOR PERIOD TIME WHEN TRIGGER MOD IS ORGINALLY SELECTED
 #define PRESETTIME  5
@@ -26,14 +27,14 @@
 #define LEVELSELECT  PORTA,7
 
 // Defines for the log field
-#define MAG         1  // 00000001
-#define ACCEL       2  // 00000010
-#define GYRO        4  // 00000100
-#define TEMP        8  // 00001000
-#define TIME        16 // 00010000 ... Will always be on
-#define LEVELING    20 // 00100000 ... if on, give random value
-#define ENCRYPT     24 // 01000000 ... if on, use encryption
-#define SLEEP       28 // 10000000
+#define MAG         1   // 00000001
+#define ACCEL       2   // 00000010
+#define GYRO        4   // 00000100
+#define TEMP        8   // 00001000
+#define TIME        16  // 00010000 ... Will always be on
+#define LEVELING    32  // 00100000 ... if on, give random value
+#define ENCRYPT     64  // 01000000 ... if on, use encryption
+#define SLEEP       128 // 10000000
 
 // EEPROM Addresses
 #define CURREG      0x0005 // Will hold value of the last register used
@@ -43,26 +44,24 @@
 #define EEPROM      0xA0  // Add of EEPROM
 
 // Hibernate values
-#define HIBWAKE     0x000053 // 0001 0101 0011 .. NO RTC MATCH
-#define HIBTIME     0x00004B // 0001 0100 1011 .. NO WAKE PIN
+#define HIBWAKE     0x000153 // 0001 0101 0011 .. NO RTC MATCH
+#define HIBTIME     0x00014B // 0001 0100 1011 .. NO WAKE PIN
 
 // HIBDATA offsets
 #define HIBLOG      (*((volatile uint32_t *)(0x400FC030 + (0*4))))  // log
 #define HIBMSAMP    (*((volatile uint32_t *)(0x400FC030 + (1*4))))  // max samples
-#define HIBGATE     (*((volatile uint32_t *)(0x400FC030 + (2*4))))  // gating param
-#define HIBLG       (*((volatile uint32_t *)(0x400FC030 + (3*4))))  // gating less than (0) or grater than (1)
-#define HIBHYST     (*((volatile uint32_t *)(0x400FC030 + (4*4))))  // hyst value
-#define HIBMODE     (*((volatile uint32_t *)(0x400FC030 + (5*4))))  // 0 trigger - 1 periodic
-#define HIBMON      (*((volatile uint32_t *)(0x400FC030 + (6*4))))  // Month
-#define HIBDAY      (*((volatile uint32_t *)(0x400FC030 + (7*4))))  // Day
-#define HIBHR       (*((volatile uint32_t *)(0x400FC030 + (8*4))))  // Hour
-#define HIBMIN      (*((volatile uint32_t *)(0x400FC030 + (9*4))))  // Minute
-#define HIBSEC      (*((volatile uint32_t *)(0x400FC030 + (10*4)))) // Second
-#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (11*4)))) // encryption key
-#define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (12*4)))) // level seed
-#define HIBCSAMP    (*((volatile uint32_t *)(0x400FC030 + (13*4)))) // sample count
-#define HIBRUN      (*((volatile uint32_t *)(0x400FC030 + (14*4)))) // if run is on (1 if on, 0 if off)
-#define HIBPERIOD   (*((volatile uint32_t *)(0x400FC030 + (15*4)))) // store period of time for hibernates in periodic mode
+#define HIBMODE     (*((volatile uint32_t *)(0x400FC030 + (2*4))))  // 0 trigger - 1 periodic
+#define HIBMON      (*((volatile uint32_t *)(0x400FC030 + (3*4))))  // Month
+#define HIBDAY      (*((volatile uint32_t *)(0x400FC030 + (4*4))))  // Day
+#define HIBHR       (*((volatile uint32_t *)(0x400FC030 + (5*4))))  // Hour
+#define HIBMIN      (*((volatile uint32_t *)(0x400FC030 + (6*4))))  // Minute
+#define HIBSEC      (*((volatile uint32_t *)(0x400FC030 + (7*4)))) // Second
+#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (8*4)))) // encryption key
+#define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (9*4)))) // level seed
+#define HIBCSAMP    (*((volatile uint32_t *)(0x400FC030 + (10*4)))) // sample count
+#define HIBRUN      (*((volatile uint32_t *)(0x400FC030 + (11*4)))) // if run is on (1 if on, 0 if off)
+#define HIBPERIOD   (*((volatile uint32_t *)(0x400FC030 + (12*4)))) // store period of time for s in periodic mode
+#define HIBOUTPUT   (*((volatile uint32_t *)(0x400FC030 + (13*4)))) // This is used to note if output has just started...used for the leveling program
 
 #define HB(x) (x >> 8) & 0xFF//defines High Byte for reading/writing to EEPROM
 #define LB(x) (x) & 0xFF//defines low byte for reading/writing to EEPROM
@@ -77,7 +76,7 @@ void commands()
     uint8_t temp; // dummy variable used as needed
     uint8_t log = TIME; // Set the log vars to log time
 
-    while(HIBCSAMP != HIBMSAMP) // Make sure we do not exceed max sample
+    while(HIBCSAMP < HIBMSAMP) // Make sure we do not exceed max sample
     {
         if(HIBRUN == 0) // if not running
         {
@@ -104,7 +103,10 @@ void commands()
                 }
                 else // store time
                 {
-                    temp = setUTime(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+                    if(uIn.fieldCount == 3)
+                        temp = setUTime(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+                    else
+                        temp = 1;
 
                     switch(temp)
                     {
@@ -128,12 +130,15 @@ void commands()
                 }
                 else // store time
                 {
-                    temp = setUDate(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+                    if(uIn.fieldCount == 2)
+                        temp = setUDate(uIn.fields); // returns 0 if successful, 1 if input was invalid, and 2 if there was an EEPROM error
+                    else
+                        temp = 1;
 
                     switch(temp)
                     {
                     case 0:
-                        putsUart0("Time set successfully.\n\n");
+                        putsUart0("Date set successfully.\n\n");
                         break;
                     case 1:
                         putsUart0("Invalid input. Please try again.\n\n");
@@ -173,6 +178,8 @@ void commands()
             {
                 if(uIn.fieldCount == 1)
                 {
+                    if(uIn.fields[0] > 47 && uIn.fields[0] < 58)
+                    {
                     uint16_t maxSample = myatoi(uIn.fields);
                     uint8_t data[] = {LB(MAXSAMP), maxSample};
                     writeI2c0Registers(EEPROM >> 1, HB(MAXSAMP), data, 2);
@@ -180,7 +187,12 @@ void commands()
                     if(readI2c0Register16(EEPROM >>1, MAXSAMP) != maxSample) // If data was not stored correctly, return error msg 2
                         putsUart0("ERROR STORING MAX SAMPLE COUNT IN EEPROM\n\n");
                     HIBMSAMP = maxSample; // Store max number of samples in HIBDATA
+                    }
+                    else
+                        putsUart0("Only numbers can be stored for 'samples.' Please try again.\n\n");
                 }
+                else
+                    putsUart0("Not a valid input for 'samples.' Please try again.\n\n");
             }
             else if(!strcmp(uIn.command, "sleep"))
             {
@@ -195,7 +207,10 @@ void commands()
             else if(!strcmp(uIn.command, "leveling"))
             {
                 if(!strcmp(uIn.fields, "on"))
+                {
                     log |= LEVELING;
+                    HIBSEED = 4;
+                }
                 else if(!strcmp(uIn.fields, "off"))
                     log = log & ~LEVELING;
                 else
@@ -225,72 +240,119 @@ void commands()
             }
             else if(!strcmp(uIn.command, "periodic"))
             {
-                // Store log in EEPROM
-                uint8_t data[] = {LB(LOG), log};
-                writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
-                waitMicrosecond(10000); // Give time for write to take place
-                if(readI2c0Register16(EEPROM >>1, LOG) != log)
-                    putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
-                HIBLG = log; // store log in HIBDATA
-                while(!(HIB_CTL_R & HIB_CTL_WRC));
+                if(uIn.fieldCount == 1)
+                {
+                    uint8_t i;
+                    bool valid = true;
+                    // store user time for period time
+                    for(i = 0; i < strlen(uIn.fields); i++)
+                    {
+                        if(uIn.fields[i] < 48 || uIn.fields[i] > 57)
+                            valid = false;
+                    }
+                    if(valid)
+                    {
 
-                // Turn run on
-                HIBRUN = 1;
+                        // Store log in EEPROM
+                        uint8_t data[] = {LB(LOG), log};
+                        writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
+                        waitMicrosecond(10000); // Give time for write to take place
+                        if(readI2c0Register16(EEPROM >>1, LOG) != log)
+                            putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
+                        HIBLOG = log; // store log in HIBDATA
+                        while(!(HIB_CTL_R & HIB_CTL_WRC));
 
-                // store 0 for period time
-                HIBPERIOD = myatoi(uIn.fields);
+                        // Turn run on
+                        HIBRUN = 1;
 
-                uint32_t time[2];
-                getSec(HIBPERIOD, time); // devide up time entered into seconds and subseconds
+                        HIBPERIOD = myatoi(uIn.fields);
 
-                // hibernate req
-                hibernate(HIBTIME, time);
+                        uint32_t time[2];
+                        getSec(HIBPERIOD, time); // devide up time entered into seconds and subseconds
+
+                        // Set register to know where to begin writing when the board wakes up
+                        uint16_t startAdd = 0x000A;
+                        uint8_t data1[] = {LB(CURREG), startAdd>>8, startAdd};
+                        writeI2c0Registers(EEPROM >> 1, HB(CURREG), data1, 3);
+                        waitMicrosecond(50000);
+
+                        // Check it was stored correctly
+                        uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
+                        add = add<<8;
+                        uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
+                        add += y;
+
+                        if(add != startAdd)
+                            putsUart0("ERROR STORING START ADD IN EEPROM\n\n");
+
+                        // hibernate req
+                        /*waitMicrosecond(1000000);
+                        hibernate(HIBTIME, time);*/
+                    }
+                    else
+                        putsUart0("Only integers can be used for 'periodic.' Please try again.\n\n");
+                }
+            else
+                putsUart0("Not a valid input for 'periodic.' Please try again.\n\n");
             }
             else if(!strcmp(uIn.command, "trigger"))
             {
-                // Store log in EEPROM
-                uint8_t data[] = {LB(LOG), log};
-                writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
-                waitMicrosecond(10000); // Give time for write to take place
-                if(readI2c0Register16(EEPROM >>1, LOG) != log)
-                    putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
-                HIBLG = log; // store log in HIBDATA
-                while(!(HIB_CTL_R & HIB_CTL_WRC));
+                if(uIn.fieldCount == 0)
+                {
+                    // Store log in EEPROM
+                    uint8_t data[] = {LB(LOG), log};
+                    writeI2c0Registers(EEPROM >> 1, HB(LOG), data, 2); // Store log in EEPROM header
+                    waitMicrosecond(10000); // Give time for write to take place
+                    if(readI2c0Register16(EEPROM >>1, LOG) != log)
+                        putsUart0("ERROR STORING LOG IN EERPOM!\n\n");
+                    HIBLOG = log; // store log in HIBDATA
+                    while(!(HIB_CTL_R & HIB_CTL_WRC));
 
-                // Turn run on
-                HIBRUN = 1;
+                    // Turn run on
+                    HIBRUN = 1;
 
-                // store 0 for period time
-                HIBPERIOD = PRESETTIME;
+                    // store 0 for period time
+                    HIBPERIOD = PRESETTIME;
 
-                uint32_t time[] = {};
+                    uint32_t time[] = {};
 
-                // hibernation req
-                hibernate(HIBWAKE, time);
-            }
-            else if(!strcmp(uIn.command, "stop"))
-            {
-                stopHibernation();
+                    // Set register to know where to begin writing when the board wakes up
+                    uint16_t startAdd = 0x000A;
+                    uint8_t data2[] = {LB(CURREG), startAdd>>8, startAdd};
+                    writeI2c0Registers(EEPROM >> 1, HB(CURREG), data2, 3);
+                    waitMicrosecond(50000);
 
-                // Store actual sample count into the EERPOm
-                uint8_t data[] = {LB(COUNTSAMP), HIBCSAMP};
-                writeI2c0Registers(EEPROM >> 1, HB(COUNTSAMP), data, 2); // Store log in EEPROM header
-                waitMicrosecond(10000); // Give time for write to take place
-                if(readI2c0Register16(EEPROM >>1, COUNTSAMP) != log)
-                    putsUart0("ERROR STORING SAMPLES IN EERPOM!\n\n");
+                    // Check it was stored correctly
+                    uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
+                    add = add<<8;
+                    uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
+                    add += y;
 
-                // Turn run off
-                HIBRUN = 0;
+                    if(add != startAdd)
+                        putsUart0("ERROR STORING START ADD IN EEPROM\n\n");
 
-                putsUart0("Log has been manually stopped. Enter 'data' to view logs");
+                    // hibernation req
+                    /*waitMicrosecond(1000000);
+                    hibernate(HIBWAKE, time);*/
+                }
+                else
+                    putsUart0("Not a valid input for 'trigger' Please try again.\n\n");
             }
             else if(!strcmp(uIn.command, "help"))
             {
-                // output list of commands
+                putsUart0("List of commands:\n  + reset - resets hardware (should see red light blink on and off again)\n");
+                putsUart0("  + temp - displays temperature\n  + time H M S - set time to the number given in place of 'H' (hour) 'M' (minute) and 'S' (second)\n");
+                putsUart0("  + time - current set time is shown\n  + date M D - set date to the date given where 'M' is the month and 'D' is the day");
+                putsUart0("  + date - current set date is shown\n  + log compass - readings from the magnetometer will be stored during each log\n");
+                putsUart0("  + log accel - readings from the accelerator will be stored during each log\n  + log gyro - readings from the gryo will be stored during each log\n");
+                putsUart0("  + log temp - readings from the temperature sensor will be stored during each log\n  + log - a list of current sensors set to log is displayed\n    (Note: Time stretched will always be logged)\n");
+                putsUart0("  + samples N - the number of samples that should be captured once the program begins running is set with the value 'N'\n");
+                putsUart0("  + leveling on/off - if on, wear leveling will be used when logging. If off, wear leveling will not be used\n");
+                putsUart0("  + encrypt key - encryption will be used when storing date with the 'key' numeric value provided\n  + encrypt off - encryption for stored values will be turned off\n");
+                putsUart0("  + periodic T - program will begin to take logs. 'T' must be a integer\n  + trigger - program will begin to take logs\n\n");
             }
             else if(!strcmp(uIn.command, "data"))
             {
-                // TODO write data output
                 dataOutput();
             }
             else
@@ -300,15 +362,47 @@ void commands()
         }
         else // is running
         {
-            HIBCSAMP++;
+            // turn off leveling circuit before hibernation
+             setPinValue(LEVELSELECT, 1);
+             waitMicrosecond(1000); // give the leveling circuit a chance to turn off to avoid any issues*/
+
+            if(kbhitUart0())
+            {
+                strcpy(input, "\0");
+                getsUart0(input);
+                if(!strcmp(input, "stop"))
+                {
+                    stopHibernation();
+
+                    // Store actual sample count into the EERPOm
+                    uint8_t data[] = {LB(COUNTSAMP), HIBCSAMP};
+                    writeI2c0Registers(EEPROM >> 1, HB(COUNTSAMP), data, 2); // Store log in EEPROM header
+                    waitMicrosecond(100000); // Give time for write to take place
+                    if(readI2c0Register16(EEPROM >>1, COUNTSAMP) != log)
+                        putsUart0("ERROR STORING SAMPLES IN EERPOM!\n\n");
+
+                    // Turn run off
+                    HIBRUN = 0;
+
+                    putsUart0("Log has been manually stopped. Enter 'data' to view logs\n\n");
+                }
+                else if(!strcmp(input, "data"))
+                {
+                    dataOutput();
+                }
+                else
+                {
+                    putsUart0("Board is currently taking samples. Only valid commands are 'stop' and 'data'. Please try again\n\n");
+                }
+            }
 
             if(!getPinValue(LIGHT)) // while light is on (outputs a 1)
             {
                 HIBMODE = 1; // Change mode to periodic
                 while(!(HIB_CTL_R & HIB_CTL_WRC));
 
-                if(rtcCausedWakeUp()) // If woken up by the RTC match value
-                {
+                //if(rtcCausedWakeUp()) // If woken up by the RTC match value
+                //{
                     // get next add
                     uint16_t add = getNextAdd();
 
@@ -318,6 +412,7 @@ void commands()
 
                     // play speaker (will play until complete or until jostled)
                     playAlert();
+                    waitMicrosecond(1000);
 
                     // get new time stamp
                     uint32_t time2[2];
@@ -327,6 +422,18 @@ void commands()
 
                     // store original time stamp
                     storeEEPROMdata(add, time1[0]);
+
+                    char buffer[128];
+
+                    // TODO REMOVE TEST OUTPUT
+                    putsUart0("Sample ");
+                    itoa(HIBCSAMP, buffer, 10);
+                    putsUart0(buffer);
+                    putsUart0(": Time Stamp - ");
+                    itoa(time1[0], buffer, 10);
+                    putsUart0(buffer);
+                    putsUart0("\n");
+
                     if(readEEPROM32(add) != time1[0])
                     {
                         putsUart0("ERROR STORING TIMESTAMP FOR SAMPLE ");
@@ -336,85 +443,110 @@ void commands()
                         putsUart0(" IN EEPROM\n\n");
                     }
 
-                    if(!record(time3, add))
+                    if(!record(time3, add+4))
                     {
-                        putsUart0("ERROR STORING SMAPLE ");
+                        putsUart0("ERROR STORING SAMPLE ");
                         char buffer[30];
                         itoa(HIBCSAMP, buffer, 10);
                         putsUart0(buffer);
                         putsUart0("\n\n");
 
                     }
-                }
+
+                    putsUart0("Recording sample: ");
+                    itoa(HIBCSAMP+1, buffer, 10);
+                    putsUart0(buffer);
+                    putsUart0(" of ");
+                    itoa(HIBMSAMP, buffer, 10);
+                    putsUart0(buffer);
+                    putsUart0("\n");
+
+                    HIBCSAMP++;
+                //}
             }
             else // light is off. No records are taken while lights are off
             {
                 HIBMODE = 0; // Change mode to periodic
             }
 
-            // turn off leveling circuit before hibernation (gets turned back on in initHw()
+           // turn off leveling circuit before hibernation
             setPinValue(LEVELSELECT, 0);
-            waitMicrosecond(10); // give the leveling circuit a chance to turn off to avlid any issues
+            waitMicrosecond(1000); // give the leveling circuit a chance to turn off to avoid any issues
 
             // Activate hibernation request
-            if(HIBMODE == 1) // periodic mode
+            /*if(HIBMODE == 1) // periodic mode
             {
-                hibernate(HIBTIME, HIBPERIOD);
+                waitMicrosecond(1000000);
+                uint32_t time[] = {HIBPERIOD, 0};
+                hibernate(HIBTIME, time);
             }
 
             else // trigger mode
-                hibernate(HIBWAKE, HIBPERIOD);
+            {
+                waitMicrosecond(1000000);
+                uint32_t time[] = {HIBPERIOD, 0};
+                hibernate(HIBWAKE, time);
+            }*/
         }
     }
 
-    putsUart0("Log complete: Max samples reached\nEnter 'data' to view log information\n\n");
-    getsUart0(input);
-    putcUart0('\n');
-    parseCommand(input, &uIn);
+    bool read = false;
 
-    if(!strcmp(uIn.command, "data"))
+    while(!read)
     {
-        // TODO write data output
-    }
-    else
-    {
-        putsUart0("Invalid command, please try again\n\n");
-    }
+        putsUart0("Log complete: Max samples reached\nEnter 'data' to view log information\n\n");
+        getsUart0(input);
+        putcUart0('\n');
+        parseCommand(input, &uIn);
 
+        if(!strcmp(uIn.command, "data"))
+        {
+            dataOutput();
+            read = true;
+        }
+        else
+        {
+            putsUart0("Invalid command, please try again\n\n");
+        }
+    }
 
 }
 
 void dataOutput()
 {
-    uint8_t temp;
+    uint32_t temp;
     uint32_t readBack;
-    uint32_t i = 0;
+    uint32_t i, j;
+
+    HIBOUTPUT = 1;
+
+    setPinValue(LEVELSELECT, 1);
+    waitMicrosecond(1000); // give the leveling circuit a chance to turn off to avoid any issues
 
     // get first address
-    uint16_t add;
-    if(HIBLOG & LEVELING) // leveling on
-    {// TODO need function to get starting add with seed
+    uint16_t add = 0x000A;
+    uint8_t data2[] = {LB(CURREG), HB(add), LB(add)};
+    writeI2c0Registers(EEPROM >> 1, HB(CURREG), data2, 3);
+    waitMicrosecond(50000);
 
-    }
-    else // leveling off
-    {
-        add = 0x000A;
-    }
+    add = getNextAdd();
+
+    HIBOUTPUT = 0;
 
     char buffer[128] = {};
 
     // header for output
-    strcpy(buffer, "Sample\t");
-    strcat(buffer, "Time Stamp\t");
+    strcpy(buffer, "Sample,");
+    strcat(buffer, "Time Stamp,");
 
     if(HIBLOG & MAG)
-        strcat(buffer, "Magnetometer X\tMagnetometer Y\tMagnetometer Z\t");
+        strcat(buffer, "Magnetometer X,Magnetometer Y,Magnetometer Z,");
     if(HIBLOG & ACCEL)
-        strcat(buffer, "Accelerometer X\tAccelerometer Y\tAccelerometer Z\t");
+        strcat(buffer, "Accelerometer X,Accelerometer Y,Accelerometer Z,");
     if(HIBLOG & GYRO)
-        strcat(buffer, "Gyroscope X\tGyroscope Y\tGyroscope Z\t");
+        strcat(buffer, "Gyroscope X,Gyroscope Y,Gyroscope Z,");
     if(HIBLOG & TEMP)
-        strcat(buffer, "Temperature\t");
+        strcat(buffer, "Temperature,");
     if(HIBLOG & TIME)
         strcat(buffer, "Time Stretched For\n");
 
@@ -422,9 +554,9 @@ void dataOutput()
 
     for(i = 0; i < HIBCSAMP; i++) // while not read through all samples...
     {
-        itoa(i, buffer, 10);
+        itoa(i+1, buffer, 10);
         putsUart0(buffer);
-        putsUart0("\t");
+        putsUart0(",");
 
         // Start reading EEPROM
         // get time stamp
@@ -434,40 +566,40 @@ void dataOutput()
         // convert time stamp
         secToDateTime(buffer, 0, readBack); // 0 is for the type to get the full time stamp
         putsUart0(buffer);
-        putsUart0("\t");
+        putsUart0(",");
 
         // get log output
         if(HIBLOG & MAG)
         {
-            for(i = 0; i < 3; i++)
+            for(j = 0; j < 3; j++)
             {
                 temp = readEEPROM32(add);
                 add += 4;
                 itoa(temp, buffer, 10);
                 putsUart0(buffer);
-                putsUart0("\t");
+                putsUart0(",");
             }
         }
         if(HIBLOG & ACCEL)
         {
-            for(i = 0; i < 3; i++)
+            for(j = 0; j < 3; j++)
             {
                 temp = readEEPROM32(add);
                 add += 4;
                 itoa(temp, buffer, 10);
                 putsUart0(buffer);
-                putsUart0("\t");
+                putsUart0(",");
             }
         }
         if(HIBLOG & GYRO)
         {
-            for(i = 0; i < 3; i++)
+            for(j = 0; j < 3; j++)
             {
                 temp = readEEPROM32(add);
                 add += 4;
                 itoa(temp, buffer, 10);
                 putsUart0(buffer);
-                putsUart0("\t");
+                putsUart0(",");
             }
         }
         if(HIBLOG & TEMP)
@@ -476,7 +608,7 @@ void dataOutput()
             add += 4;
             itoa(temp, buffer, 10);
             putsUart0(buffer);
-            putsUart0("\t");
+            putsUart0(",");
         }
         if(HIBLOG & TIME)
         {
@@ -484,10 +616,20 @@ void dataOutput()
             add += 4;
             itoa(temp, buffer, 10);
             putsUart0(buffer);
-            putsUart0("\t");
         }
 
         putsUart0("\n");
+
+        // get next address
+        uint8_t data2[] = {LB(CURREG), HB(add), LB(add)};
+        writeI2c0Registers(EEPROM >> 1, HB(CURREG), data2, 3);
+        waitMicrosecond(50000);
+
+        add = getNextAdd();
+
+
+        if(HIBOUTPUT == 1)
+            HIBOUTPUT = 0;
     }
 }
 
@@ -743,18 +885,18 @@ void reverse(char str[], uint8_t length)
 // get the next EEPROM address to write to
 uint16_t getNextAdd()
 {
-    /*if(log & LEVELING) // leveling in on
-        //Write code to get leveling value of next add
+    uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
+    add = add<<8;
+    uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
+    add += y;
 
-    else
-    {*/
-        uint16_t add = readI2c0Register16(EEPROM >> 1, CURREG); // get upper bits
-        add = add<<8;
-        uint8_t y = readI2c0Register16(EEPROM >> 1, CURREG+1); // get lower bit
-        add += y;
+    if(HIBLOG & LEVELING) // leveling in on
+    {
+        uint8_t temp = leveling();
+        add += temp;
+    }
 
-        return add;
-    //}
+    return add;
 }
 
 // convert strings to numbers

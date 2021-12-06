@@ -1,12 +1,8 @@
+// leveling.c
+// This is responsible for for random access of memory
 
-
-/*
- * levelin.c
- *
- *  Created on: Dec 3, 2021
- *      Author: Arcan
- */
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include "tm4c123gh6pm.h"
@@ -15,8 +11,10 @@
 #include "uart0.h"
 #include "hibernation.h"
 #include <time.h>
-#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (11*4)))) // encryption key
-#define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (12*4)))) // level seed
+
+#define HIBKEY      (*((volatile uint32_t *)(0x400FC030 + (8*4)))) // encryption key
+#define HIBSEED     (*((volatile uint32_t *)(0x400FC030 + (9*4)))) // level seed
+#define HIBOUTPUT   (*((volatile uint32_t *)(0x400FC030 + (13*4)))) // This is used to note if output has just started...used for the leveling program
 
 
 uint8_t leveling(){
@@ -24,14 +22,25 @@ uint8_t leveling(){
     static bool chosenElements[10] = {false};
     uint8_t i, j;
     j=0;
-    for(i=0; i<10; i++){
+
+    if(HIBOUTPUT == 1) // Reset the array to start at beginning of pattern
+    {
+        for(i=0; i<10; i++)
+            chosenElements[i]=false;
+    }
+
+    // This is important because if all of the elements are true, this will get stuck in an infinite loop
+    // Check is all elements are true
+    for(i=0; i<10; i++)
+    {
         if(chosenElements[i]==true)
             j++;
     }
-    if(j==10){
-        for(i=0; i<10; i++){
+    // If they are, set them all to false
+    if(j==10)
+    {
+        for(i=0; i<10; i++)
             chosenElements[i]=false;
-        }
     }
 
     // rand() will generate a random integer and if we mod it with 10
@@ -54,7 +63,3 @@ uint8_t leveling(){
     //return arr[index];
     return index;
 }
-
-
-
-
